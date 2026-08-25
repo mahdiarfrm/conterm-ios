@@ -1,0 +1,364 @@
+diff --git a/src/termio.zig b/src/termio.zig
+index b168851..f0dab45 100644
+--- a/src/termio.zig
++++ b/src/termio.zig
+@@ -23,6 +23,7 @@ const message = @import("termio/message.zig");
+ pub const backend = @import("termio/backend.zig");
+ pub const mailbox = @import("termio/mailbox.zig");
+ pub const Exec = @import("termio/Exec.zig");
++pub const External = @import("termio/External.zig");
+ pub const Options = @import("termio/Options.zig");
+ pub const Termio = @import("termio/Termio.zig");
+ pub const Thread = @import("termio/Thread.zig");
+diff --git a/src/termio/External.zig b/src/termio/External.zig
+new file mode 100644
+index 0000000..335e1e4
+--- /dev/null
++++ b/src/termio/External.zig
+@@ -0,0 +1,231 @@
++//! External implements a termio backend whose bytes come from — and go to —
++//! the embedding application rather than a local child process on a pty.
++//!
++//! This exists for platforms where a terminal cannot own a process at all.
++//! On iOS `fork`/`exec` and pty allocation are unavailable to a sandboxed
++//! app, so the only way to drive a terminal there is to carry the stream
++//! yourself (over SSH, a serial link, a websocket) and hand the bytes to
++//! the emulator. `src/pty.zig` already anticipates this: it selects a
++//! `NullPty` on iOS with a TODO saying a termio that doesn't use a pty is
++//! what's actually wanted. This is that termio.
++//!
++//! The data path is inverted relative to `Exec`:
++//!
++//!   * Output (remote -> terminal) is *pushed* in by the embedder calling
++//!     `Termio.processOutput`. There is no read thread, because there is no
++//!     file descriptor to poll.
++//!   * Input (terminal -> remote) leaves through `write_cb`, invoked on the
++//!     io thread from `queueWrite`.
++//!   * A resize is reported through `resize_cb` so the embedder can pass the
++//!     new window size along (an SSH `window-change` request, say).
++//!
++//! Both callbacks are optional. A backend with neither is a terminal that
++//! renders whatever is pushed into it and drops what's typed — which is a
++//! legitimate configuration for a read-only viewer.
++const External = @This();
++
++const std = @import("std");
++const Allocator = std.mem.Allocator;
++const renderer = @import("../renderer.zig");
++const terminal = @import("../terminal/main.zig");
++const termio = @import("../termio.zig");
++const ProcessInfo = @import("../pty.zig").ProcessInfo;
++
++const log = std.log.scoped(.io_external);
++
++/// Bytes are handed out in chunks no larger than this. The callback may be
++/// called more than once for a single `queueWrite`.
++const WRITE_CHUNK = 4096;
++
++/// Opaque embedder pointer passed back to every callback.
++userdata: ?*anyopaque,
++
++/// Called on the io thread when the terminal has bytes for the far end.
++/// The slice is only valid for the duration of the call; copy it.
++write_cb: ?WriteFn,
++
++/// Called when the terminal has been resized. The embedder is expected to
++/// forward this to whatever owns the remote pty.
++resize_cb: ?ResizeFn,
++
++pub const WriteFn = *const fn (
++    userdata: ?*anyopaque,
++    data: [*]const u8,
++    len: usize,
++) callconv(.c) void;
++
++pub const ResizeFn = *const fn (
++    userdata: ?*anyopaque,
++    columns: u16,
++    rows: u16,
++    width_px: u32,
++    height_px: u32,
++) callconv(.c) void;
++
++pub const Config = struct {
++    userdata: ?*anyopaque = null,
++    write_cb: ?WriteFn = null,
++    resize_cb: ?ResizeFn = null,
++};
++
++pub fn init(alloc: Allocator, cfg: Config) !External {
++    _ = alloc;
++    return .{
++        .userdata = cfg.userdata,
++        .write_cb = cfg.write_cb,
++        .resize_cb = cfg.resize_cb,
++    };
++}
++
++pub fn deinit(self: *External) void {
++    _ = self;
++}
++
++/// Report the terminal's starting size so the far end can match it before
++/// the first byte is written. `Exec` does the equivalent by sizing the pty
++/// here; we have no pty, so the embedder gets told instead.
++pub fn initTerminal(self: *External, t: *terminal.Terminal) void {
++    self.resize(.{
++        .columns = t.cols,
++        .rows = t.rows,
++    }, .{
++        .width = t.width_px,
++        .height = t.height_px,
++    }) catch {};
++}
++
++pub fn threadEnter(
++    self: *External,
++    alloc: Allocator,
++    io: *termio.Termio,
++    td: *termio.Termio.ThreadData,
++) !void {
++    _ = self;
++    _ = alloc;
++    _ = io;
++
++    // No process to spawn and no descriptor to poll, so there is nothing
++    // to arm on the loop. Output arrives by push.
++    td.backend = .{ .external = .{} };
++}
++
++pub fn threadExit(self: *External, td: *termio.Termio.ThreadData) void {
++    _ = self;
++    _ = td;
++}
++
++pub fn focusGained(
++    self: *External,
++    td: *termio.Termio.ThreadData,
++    focused: bool,
++) !void {
++    _ = self;
++    _ = td;
++    _ = focused;
++
++    // Exec polls termios here to track whether the child has echo off.
++    // There is no local child, so there is nothing to poll.
++}
++
++pub fn resize(
++    self: *External,
++    grid_size: renderer.GridSize,
++    screen_size: renderer.ScreenSize,
++) !void {
++    const cb = self.resize_cb orelse return;
++    cb(
++        self.userdata,
++        @intCast(grid_size.columns),
++        @intCast(grid_size.rows),
++        screen_size.width,
++        screen_size.height,
++    );
++}
++
++pub fn queueWrite(
++    self: *External,
++    alloc: Allocator,
++    td: *termio.Termio.ThreadData,
++    data: []const u8,
++    linefeed: bool,
++) !void {
++    _ = alloc;
++    _ = td;
++
++    const cb = self.write_cb orelse return;
++    if (data.len == 0) return;
++
++    // Fast path: hand the caller's slice straight through, chunked only so
++    // an embedder can rely on a bounded length.
++    if (!linefeed) {
++        var i: usize = 0;
++        while (i < data.len) {
++            const end = @min(data.len, i + WRITE_CHUNK);
++            cb(self.userdata, data[i..end].ptr, end - i);
++            i = end;
++        }
++        return;
++    }
++
++    // Slow path: the terminal is in linefeed mode, so every CR has to go
++    // out as CRLF. Translate into a stack buffer rather than allocating —
++    // this runs on the io thread for every keystroke.
++    var buf: [WRITE_CHUNK]u8 = undefined;
++    var buf_i: usize = 0;
++    for (data) |ch| {
++        // Worst case this byte becomes two, so flush with room to spare.
++        if (buf_i >= buf.len - 1) {
++            cb(self.userdata, &buf, buf_i);
++            buf_i = 0;
++        }
++
++        if (ch != '\r') {
++            buf[buf_i] = ch;
++            buf_i += 1;
++            continue;
++        }
++
++        buf[buf_i] = '\r';
++        buf[buf_i + 1] = '\n';
++        buf_i += 2;
++    }
++    if (buf_i > 0) cb(self.userdata, &buf, buf_i);
++}
++
++pub fn childExitedAbnormally(
++    self: *External,
++    gpa: Allocator,
++    t: *terminal.Terminal,
++    exit_code: u32,
++    runtime_ms: u64,
++) !void {
++    _ = self;
++    _ = gpa;
++    _ = t;
++    _ = exit_code;
++    _ = runtime_ms;
++
++    // There is no child, so this is unreachable in practice. The embedder
++    // signals a closed connection by tearing the surface down.
++}
++
++pub fn getProcessInfo(
++    self: *External,
++    comptime info: ProcessInfo,
++) ?ProcessInfo.Type(info) {
++    _ = self;
++
++    // The process lives on the far end of whatever the embedder is
++    // carrying; nothing local to report.
++    return null;
++}
++
++/// The thread local data for the external implementation. There is no loop
++/// state to keep — writes leave synchronously through the callback — but the
++/// backend union requires an arm.
++pub const ThreadData = struct {
++    pub fn deinit(self: *ThreadData, alloc: Allocator) void {
++        _ = self;
++        _ = alloc;
++    }
++};
+diff --git a/src/termio/backend.zig b/src/termio/backend.zig
+index c29009a..790ff71 100644
+--- a/src/termio/backend.zig
++++ b/src/termio/backend.zig
+@@ -11,28 +11,36 @@ const ProcessInfo = @import("../pty.zig").ProcessInfo;
+ const WRITE_REQ_PREALLOC = std.math.pow(usize, 2, 5);
+ 
+ /// The kinds of backends.
+-pub const Kind = enum { exec };
++pub const Kind = enum { exec, external };
+ 
+ /// Configuration for the various backend types.
+ pub const Config = union(Kind) {
+     /// Exec uses posix exec to run a command with a pty.
+     exec: termio.Exec.Config,
++
++    /// External is driven by the embedding application: output is pushed
++    /// in and input leaves through a callback. Used where a terminal can't
++    /// own a process (iOS) or shouldn't (a remote-only session).
++    external: termio.External.Config,
+ };
+ 
+ /// Backend implementations. A backend is responsible for owning the pty
+ /// behavior and providing read/write capabilities.
+ pub const Backend = union(Kind) {
+     exec: termio.Exec,
++    external: termio.External,
+ 
+     pub fn deinit(self: *Backend) void {
+         switch (self.*) {
+             .exec => |*exec| exec.deinit(),
++            .external => |*ext| ext.deinit(),
+         }
+     }
+ 
+     pub fn initTerminal(self: *Backend, t: *terminal.Terminal) void {
+         switch (self.*) {
+             .exec => |*exec| exec.initTerminal(t),
++            .external => |*ext| ext.initTerminal(t),
+         }
+     }
+ 
+@@ -44,12 +52,14 @@ pub const Backend = union(Kind) {
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.threadEnter(alloc, io, td),
++            .external => |*ext| try ext.threadEnter(alloc, io, td),
+         }
+     }
+ 
+     pub fn threadExit(self: *Backend, td: *termio.Termio.ThreadData) void {
+         switch (self.*) {
+             .exec => |*exec| exec.threadExit(td),
++            .external => |*ext| ext.threadExit(td),
+         }
+     }
+ 
+@@ -60,6 +70,7 @@ pub const Backend = union(Kind) {
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.focusGained(td, focused),
++            .external => |*ext| try ext.focusGained(td, focused),
+         }
+     }
+ 
+@@ -70,6 +81,7 @@ pub const Backend = union(Kind) {
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.resize(grid_size, screen_size),
++            .external => |*ext| try ext.resize(grid_size, screen_size),
+         }
+     }
+ 
+@@ -82,6 +94,7 @@ pub const Backend = union(Kind) {
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.queueWrite(alloc, td, data, linefeed),
++            .external => |*ext| try ext.queueWrite(alloc, td, data, linefeed),
+         }
+     }
+ 
+@@ -99,6 +112,12 @@ pub const Backend = union(Kind) {
+                 exit_code,
+                 runtime_ms,
+             ),
++            .external => |*ext| try ext.childExitedAbnormally(
++                gpa,
++                t,
++                exit_code,
++                runtime_ms,
++            ),
+         }
+     }
+ 
+@@ -108,6 +127,7 @@ pub const Backend = union(Kind) {
+     pub fn getProcessInfo(self: *Backend, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+         return switch (self.*) {
+             .exec => |*exec| exec.getProcessInfo(info),
++            .external => |*ext| ext.getProcessInfo(info),
+         };
+     }
+ };
+@@ -115,10 +135,12 @@ pub const Backend = union(Kind) {
+ /// Termio thread data. See termio.ThreadData for docs.
+ pub const ThreadData = union(Kind) {
+     exec: termio.Exec.ThreadData,
++    external: termio.External.ThreadData,
+ 
+     pub fn deinit(self: *ThreadData, alloc: Allocator) void {
+         switch (self.*) {
+             .exec => |*exec| exec.deinit(alloc),
++            .external => |*ext| ext.deinit(alloc),
+         }
+     }
+ 

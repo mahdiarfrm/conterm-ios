@@ -1,0 +1,14 @@
+# Build trees for the vendored native dependencies. Both are reproducible
+# from scripts/, and both are far too large to track.
+.build-ghostty/
+.build-ssh/
+Vendor/*.xcframework
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+
+.DS_Store

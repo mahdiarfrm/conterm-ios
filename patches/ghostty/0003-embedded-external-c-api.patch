@@ -1,0 +1,285 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 665c163..d2c06f4 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -445,6 +445,21 @@ typedef struct {
+   const char* value;
+ } ghostty_env_var_s;
+ 
++// Called when a surface using the external termio backend has bytes for
++// the far end. The data pointer is only valid for the duration of the
++// call. Invoked on Ghostty's IO thread, not the main thread.
++typedef void (*ghostty_termio_write_cb)(void* userdata,
++                                        const uint8_t* data,
++                                        size_t len);
++
++// Called when a surface using the external termio backend is resized, so
++// the embedder can forward the new size to whatever owns the remote pty.
++typedef void (*ghostty_termio_resize_cb)(void* userdata,
++                                         uint16_t columns,
++                                         uint16_t rows,
++                                         uint32_t width_px,
++                                         uint32_t height_px);
++
+ typedef struct {
+   void* nsview;
+ } ghostty_platform_macos_s;
+@@ -480,6 +495,21 @@ typedef struct {
+   const char* const* command_wrapper;
+   size_t command_wrapper_count;
+   bool disable_shell_integration;
++
++  // Drive this surface from the embedder instead of a child process. No
++  // pty is allocated and nothing is spawned; feed the terminal with
++  // ghostty_surface_write_output and collect its input from termio_write_cb.
++  // This is the only way to run a surface where fork/exec is unavailable
++  // (iOS), and the way to attach a terminal to a stream you already own.
++  //
++  // command, command_wrapper, working_directory, env_vars and initial_input
++  // are all ignored when this is set: they describe a child that is never
++  // started.
++  bool termio_external;
++  ghostty_termio_write_cb termio_write_cb;
++  ghostty_termio_resize_cb termio_resize_cb;
++  // Userdata for the two callbacks above. Falls back to `userdata` if null.
++  void* termio_userdata;
+ } ghostty_surface_config_s;
+ 
+ typedef struct {
+@@ -1129,6 +1159,10 @@ GHOSTTY_API bool ghostty_surface_key_is_binding(ghostty_surface_t,
+                                                    ghostty_input_key_s,
+                                                    ghostty_binding_flags_e*);
+ GHOSTTY_API void ghostty_surface_text(ghostty_surface_t, const char*, uintptr_t);
++// Push bytes from the far end into a surface created with termio_external.
++// Takes the renderer lock, so it is safe to call from any thread — but call
++// it from exactly one, since the VT parser carries state across calls.
++GHOSTTY_API void ghostty_surface_write_output(ghostty_surface_t, const uint8_t*, size_t);
+ GHOSTTY_API void ghostty_surface_preedit(ghostty_surface_t, const char*, uintptr_t);
+ GHOSTTY_API bool ghostty_surface_mouse_captured(ghostty_surface_t);
+ GHOSTTY_API bool ghostty_surface_mouse_button(ghostty_surface_t,
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 3badf59..1d3dd69 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -628,39 +628,60 @@ pub fn init(
+     // This separate block ({}) is important because our errdefers must
+     // be scoped here to be valid.
+     {
+-        var env = rt_surface.defaultTermioEnv() catch |err| env: {
+-            // If an error occurs, we don't want to block surface startup.
+-            log.warn("error getting env map for surface err={}", .{err});
+-            break :env internal_os.getEnvMap(alloc) catch
+-                std.process.EnvMap.init(alloc);
++        // An apprt may declare `externalTermioConfig` to say that this
++        // surface is driven by the embedder — output pushed in, input
++        // handed back through a callback — rather than by a local child
++        // process. When it answers non-null we take the external backend
++        // and never touch the exec path: on iOS there is no process to
++        // build it for, and no environment worth assembling for one.
++        const external_config: ?termio.External.Config = external: {
++            if (comptime !@hasDecl(apprt.Surface, "externalTermioConfig")) {
++                break :external null;
++            }
++            break :external rt_surface.externalTermioConfig();
+         };
+-        errdefer env.deinit();
+ 
+-        // don't leak GHOSTTY_LOG to any subprocesses
+-        env.remove("GHOSTTY_LOG");
++        var io_backend: termio.Backend = backend: {
++            if (external_config) |ext_config| {
++                break :backend .{
++                    .external = try termio.External.init(alloc, ext_config),
++                };
++            }
+ 
+-        var buf: [18]u8 = undefined;
+-        try env.put(
+-            "GHOSTTY_SURFACE_ID",
+-            std.fmt.bufPrint(&buf, "0x{x:0>16}", .{self.id}) catch unreachable,
+-        );
++            var env = rt_surface.defaultTermioEnv() catch |err| env: {
++                // If an error occurs, we don't want to block surface startup.
++                log.warn("error getting env map for surface err={}", .{err});
++                break :env internal_os.getEnvMap(alloc) catch
++                    std.process.EnvMap.init(alloc);
++            };
++            errdefer env.deinit();
+ 
+-        // Initialize our IO backend
+-        var io_exec = try termio.Exec.init(alloc, .{
+-            .command = command,
+-            .command_wrapper = config.@"command-wrapper",
+-            .env = env,
+-            .env_override = config.env,
+-            .shell_integration = config.@"shell-integration",
+-            .shell_integration_features = config.@"shell-integration-features",
+-            .cursor_blink = config.@"cursor-style-blink",
+-            .working_directory = if (config.@"working-directory") |wd| wd.value() else null,
+-            .resources_dir = global_state.resources_dir.host(),
+-            .term = config.term,
+-            .rt_pre_exec_info = .init(config),
+-            .rt_post_fork_info = .init(config),
+-        });
+-        errdefer io_exec.deinit();
++            // don't leak GHOSTTY_LOG to any subprocesses
++            env.remove("GHOSTTY_LOG");
++
++            var buf: [18]u8 = undefined;
++            try env.put(
++                "GHOSTTY_SURFACE_ID",
++                std.fmt.bufPrint(&buf, "0x{x:0>16}", .{self.id}) catch unreachable,
++            );
++
++            const io_exec = try termio.Exec.init(alloc, .{
++                .command = command,
++                .command_wrapper = config.@"command-wrapper",
++                .env = env,
++                .env_override = config.env,
++                .shell_integration = config.@"shell-integration",
++                .shell_integration_features = config.@"shell-integration-features",
++                .cursor_blink = config.@"cursor-style-blink",
++                .working_directory = if (config.@"working-directory") |wd| wd.value() else null,
++                .resources_dir = global_state.resources_dir.host(),
++                .term = config.term,
++                .rt_pre_exec_info = .init(config),
++                .rt_post_fork_info = .init(config),
++            });
++            break :backend .{ .exec = io_exec };
++        };
++        errdefer io_backend.deinit();
+ 
+         // Initialize our IO mailbox
+         var io_mailbox = try termio.Mailbox.initSPSC(alloc);
+@@ -670,7 +691,7 @@ pub fn init(
+             .size = size,
+             .full_config = config,
+             .config = try termio.Termio.DerivedConfig.init(alloc, config),
+-            .backend = .{ .exec = io_exec },
++            .backend = io_backend,
+             .mailbox = io_mailbox,
+             .renderer_state = &self.renderer_state,
+             .renderer_wakeup = render_thread.wakeup,
+@@ -1314,6 +1335,11 @@ fn childExitedAbnormally(
+     // Build up our command for the error message
+     const command = try std.mem.join(alloc, " ", switch (self.io.backend) {
+         .exec => |*exec| exec.subprocess.args,
++
++        // The external backend has no child, so nothing can exit
++        // abnormally and this is unreachable in practice. It still has to
++        // name a command for the error screen; there isn't one.
++        .external => &[_][]const u8{},
+     });
+     const runtime_str = try std.fmt.allocPrint(alloc, "{d} ms", .{info.runtime_ms});
+ 
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index 77c5fcd..d8de489 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -15,6 +15,7 @@ const input = @import("../input.zig");
+ const internal_os = @import("../os/main.zig");
+ const renderer = @import("../renderer.zig");
+ const terminal = @import("../terminal/main.zig");
++const termio = @import("../termio.zig");
+ const CoreApp = @import("../App.zig");
+ const CoreInspector = @import("../inspector/main.zig").Inspector;
+ const CoreSurface = @import("../Surface.zig");
+@@ -421,6 +422,10 @@ pub const Surface = struct {
+     /// that getTitle works without the implementer needing to save it.
+     title: ?[:0]const u8 = null,
+ 
++    /// The external termio config for this surface, if the embedder asked
++    /// for one. Read by core `Surface.init` through `externalTermioConfig`.
++    external_termio: ?termio.External.Config = null,
++
+     /// Surface initialization options.
+     pub const Options = extern struct {
+         /// The platform that this surface is being initialized for and
+@@ -475,13 +480,51 @@ pub const Surface = struct {
+         /// (e.g. a script runner that emits its own OSC sequences) and must not
+         /// have Ghostty's integration injected into the shell.
+         disable_shell_integration: bool = false,
++
++        /// Drive this surface from the embedder instead of a child process.
++        ///
++        /// When true, no pty is allocated and nothing is spawned. Output is
++        /// pushed in with `ghostty_surface_write_output`, input leaves through
++        /// `termio_write_cb`, and resizes are reported to `termio_resize_cb`.
++        /// This is the only way to run a surface on a platform that forbids
++        /// `fork`/`exec` (iOS), and it's also how you attach a terminal to a
++        /// stream you already own — an SSH channel, a serial port.
++        ///
++        /// `command`, `command_wrapper`, `working_directory`, `env_vars` and
++        /// `initial_input` are all ignored when this is set: they describe a
++        /// child that is never started.
++        termio_external: bool = false,
++
++        /// Called when the terminal has bytes for the far end. The pointer is
++        /// only valid for the duration of the call. Invoked on the io thread.
++        termio_write_cb: ?termio.External.WriteFn = null,
++
++        /// Called when the terminal has resized, so the embedder can pass the
++        /// new size along to whatever owns the remote pty.
++        termio_resize_cb: ?termio.External.ResizeFn = null,
++
++        /// Userdata for the two callbacks above. Defaults to `userdata` when
++        /// left null.
++        termio_userdata: ?*anyopaque = null,
+     };
+ 
++    /// Answer whether this surface is driven by the embedder rather than by
++    /// a child process. Core `Surface.init` looks for this declaration by
++    /// name, so only apprts that define it can take the external path.
++    pub fn externalTermioConfig(self: *Surface) ?termio.External.Config {
++        return self.external_termio;
++    }
++
+     pub fn init(self: *Surface, app: *App, opts: Options) !void {
+         self.* = .{
+             .app = app,
+             .platform = try .init(opts.platform_tag, opts.platform),
+             .userdata = opts.userdata,
++            .external_termio = if (opts.termio_external) .{
++                .userdata = opts.termio_userdata orelse opts.userdata,
++                .write_cb = opts.termio_write_cb,
++                .resize_cb = opts.termio_resize_cb,
++            } else null,
+             .core_surface = undefined,
+             .content_scale = .{
+                 .x = @floatCast(opts.scale_factor),
+@@ -1855,6 +1898,35 @@ pub const CAPI = struct {
+         surface.textCallback(ptr[0..len]);
+     }
+ 
++    /// Push bytes from the far end into the terminal.
++    ///
++    /// This is the input half of the external termio backend: the embedder
++    /// owns the stream (an SSH channel, a serial port) and hands whatever it
++    /// reads to the VT parser here. Without it a surface created with
++    /// `termio_external` renders an empty grid forever.
++    ///
++    /// Only valid on a surface created with `termio_external = true`. On any
++    /// other surface this is ignored — writing into a terminal that also has
++    /// a child process feeding it would interleave two streams into one
++    /// parser and corrupt the screen.
++    ///
++    /// Takes the renderer lock, so it is safe to call from any thread. Call
++    /// it from exactly one thread, though: the parser itself carries state
++    /// across calls, and two threads splitting an escape sequence between
++    /// them will each see half of it.
++    export fn ghostty_surface_write_output(
++        surface: *Surface,
++        ptr: [*]const u8,
++        len: usize,
++    ) void {
++        if (surface.external_termio == null) {
++            log.warn("write_output on a non-external surface, ignoring", .{});
++            return;
++        }
++        if (len == 0) return;
++        surface.core_surface.io.processOutput(ptr[0..len]);
++    }
++
+     /// Set the preedit text for the surface. This is used for IME
+     /// composition. If the length is 0, then the preedit text is cleared.
+     export fn ghostty_surface_preedit(

@@ -136,15 +136,26 @@ build_libssh2() { # slice sdk arch cmake-sysroot
 # --------------------------------------------------------------------------
 # libssh2 and OpenSSL are three separate archives that always travel
 # together, so each becomes one xcframework with its own headers.
+# None of these xcframeworks ship headers.
+#
+# Xcode copies every xcframework's headers into one shared `include/` in the
+# build products. GhosttyKit declares an umbrella module over that directory,
+# so any header landing beside it — every openssl/*.h, say — is claimed by
+# module GhosttyKit, warned about, and the module comes out malformed. The
+# symptom is not a missing header but a Swift error that `libssh2_init` does
+# not exist.
+#
+# So the C headers go to Vendor/include instead, reached by
+# HEADER_SEARCH_PATHS, and the shared include/ stays GhosttyKit's alone.
+# Device and simulator headers are identical for both libraries, so one copy
+# serves both slices.
 assemble() { # name lib-relpath
     local name="$1" rel="$2"
     local fw="$OUT/$name.xcframework"
     rm -rf "$fw"
     xcodebuild -create-xcframework \
         -library "$WORK/$rel-device/lib/lib$name.a" \
-        -headers "$WORK/$rel-device/include" \
         -library "$WORK/$rel-simulator/lib/lib$name.a" \
-        -headers "$WORK/$rel-simulator/include" \
         -output "$fw" > /dev/null
     echo "==> $fw"
 }
@@ -190,6 +201,12 @@ check_platform "$WORK/libssh2-simulator/lib/libssh2.a" 7
 assemble ssh2   libssh2
 assemble crypto openssl
 assemble ssl    openssl
+
+echo "==> $OUT/include"
+rm -rf "$OUT/include"
+mkdir -p "$OUT/include"
+cp -R "$WORK/libssh2-device/include/." "$OUT/include/"
+cp -R "$WORK/openssl-device/include/." "$OUT/include/"
 
 echo
 echo "OK: xcframeworks in $OUT/"

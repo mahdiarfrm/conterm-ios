@@ -3,6 +3,7 @@
 .build-ghostty/
 .build-ssh/
 Vendor/*.xcframework
+Vendor/include/
 
 # Xcode
 build/

@@ -89,13 +89,23 @@ final class SurfaceController {
 
     // MARK: - Data path
 
+    /// Total bytes handed to libghostty. Distinguishes "nothing was written"
+    /// from "it was written and did not render".
+    private(set) var bytesWritten = 0
+
     /// Push bytes from the far end into the terminal.
     func write(_ data: Data) {
-        guard let handle, !data.isEmpty else { return }
+        guard let handle, !data.isEmpty else {
+            Ghostty.log.error("write dropped: handle=\(self.handle != nil) bytes=\(data.count)")
+            return
+        }
         data.withUnsafeBytes { raw in
             guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
             ghostty_surface_write_output(handle, base, raw.count)
         }
+        bytesWritten += data.count
+        needsDraw = true
+        Ghostty.log.info("wrote \(data.count)B total=\(self.bytesWritten)")
     }
 
     /// Send text as if typed. Goes out through `onWrite`.
@@ -169,9 +179,25 @@ final class SurfaceController {
         ghostty_surface_set_occlusion(handle, visible)
     }
 
+    /// Set by libghostty's RENDER action; consumed by the display link.
+    ///
+    /// Marking dirty and presenting are separate on purpose: the render
+    /// action arrives on libghostty's thread at whatever rate output
+    /// demands, and presenting has to happen on a frame boundary.
+    private(set) var needsDraw = true
+
     func markNeedsDisplay() {
         guard let handle else { return }
+        needsDraw = true
         ghostty_surface_refresh(handle)
+    }
+
+    /// Called once per frame while the surface is on screen. Draws only when
+    /// something changed, so an idle terminal costs nothing.
+    func drawIfNeeded() {
+        guard let handle, needsDraw else { return }
+        needsDraw = false
+        ghostty_surface_draw(handle)
     }
 
     func draw() {

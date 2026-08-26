@@ -35,19 +35,23 @@ struct KeyAccessoryBar: View {
         let label: String
         let symbol: String?
         let send: String
+        var wide = false
     }
 
     private static let keys: [Key] = [
         .init(label: "esc", symbol: nil, send: "\u{1b}"),
         .init(label: "tab", symbol: nil, send: "\t"),
-        .init(label: "/", symbol: nil, send: "/"),
-        .init(label: "-", symbol: nil, send: "-"),
-        .init(label: "|", symbol: nil, send: "|"),
-        .init(label: "~", symbol: nil, send: "~"),
+        // CR, not LF. A shell ignores a bare newline.
+        .init(label: "", symbol: "return", send: "\r", wide: true),
         .init(label: "", symbol: "arrow.up", send: "\u{1b}[A"),
         .init(label: "", symbol: "arrow.down", send: "\u{1b}[B"),
         .init(label: "", symbol: "arrow.left", send: "\u{1b}[D"),
         .init(label: "", symbol: "arrow.right", send: "\u{1b}[C"),
+        .init(label: "/", symbol: nil, send: "/"),
+        .init(label: "-", symbol: nil, send: "-"),
+        .init(label: "|", symbol: nil, send: "|"),
+        .init(label: "~", symbol: nil, send: "~"),
+        .init(label: "", symbol: "delete.left", send: "\u{7f}"),
     ]
 
     var body: some View {
@@ -65,11 +69,16 @@ struct KeyAccessoryBar: View {
         }
         .background(alignment: .top) {
             // A hairline along the top edge separates the bar from the
-            // terminal without drawing a full divider across the glass.
+            // terminal without drawing a divider across the glass.
             Rectangle().fill(Theme.stroke).frame(height: 1)
         }
-        .background(.ultraThinMaterial)
-        .background(Theme.paneTitleBar.opacity(0.72))
+        .background {
+            if #available(iOS 26, *) {
+                Rectangle().fill(.ultraThinMaterial).glassEffect(in: Rectangle())
+            } else {
+                Rectangle().fill(.ultraThinMaterial)
+            }
+        }
     }
 
     @ViewBuilder
@@ -77,30 +86,38 @@ struct KeyAccessoryBar: View {
         Group {
             if let symbol = key.symbol {
                 Image(systemName: symbol)
-                    .font(.system(size: Theme.ui(13), weight: .semibold))
+                    .font(.system(size: Theme.ui(15), weight: .semibold))
             } else {
                 Text(key.label)
-                    .font(.system(size: Theme.ui(13), weight: .semibold, design: .monospaced))
+                    .font(.system(size: Theme.ui(14), weight: .semibold, design: .monospaced))
             }
         }
         .foregroundStyle(Theme.accentOnDark)
-        .frame(minWidth: Theme.ui(38), minHeight: Theme.ui(34))
-        .glassPill(tone: .dark)
+        .frame(minWidth: key.wide ? Theme.ui(62) : Theme.ui(44),
+               minHeight: Theme.ui(40))
+        .floatingGlass()
     }
 
     private func modifier(_ title: String, on binding: Binding<Bool>) -> some View {
         Button {
             binding.wrappedValue.toggle()
             syncModifiers()
+            SoundEffects.shared.tap(.toggle, haptic: .rigid)
         } label: {
             Text(title)
-                .font(.system(size: Theme.ui(13), weight: .semibold, design: .monospaced))
-                .foregroundStyle(binding.wrappedValue ? Theme.paneTile : Theme.accentOnDark)
-                .frame(minWidth: Theme.ui(44), minHeight: Theme.ui(34))
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(binding.wrappedValue ? Theme.accentOnDark : .clear))
-                .glassPill(tone: .dark, selected: binding.wrappedValue)
+                .font(.system(size: Theme.ui(14), weight: .semibold, design: .monospaced))
+                .foregroundStyle(binding.wrappedValue ? Theme.appBackground : Theme.accentOnDark)
+                .frame(minWidth: Theme.ui(52), minHeight: Theme.ui(40))
+                .background {
+                    if binding.wrappedValue {
+                        // A latched modifier is the one thing on this bar
+                        // that must be unmistakable at a glance.
+                        Capsule(style: .continuous)
+                            .fill(Theme.accentOnDark)
+                            .shadow(color: Theme.accentOnDark.opacity(0.45), radius: 8)
+                    }
+                }
+                .floatingGlass()
         }
         .buttonStyle(PressablePill(scale: 0.9))
         .animation(Theme.Spring.snappy, value: binding.wrappedValue)
@@ -120,7 +137,7 @@ struct KeyAccessoryBar: View {
         control = false
         alt = false
         syncModifiers()
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        SoundEffects.shared.tap(.click, haptic: .light)
     }
 
     private func syncModifiers() {

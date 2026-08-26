@@ -195,10 +195,18 @@ extension Ghostty {
             "shell-integration-features = no-cursor",
             // There is no local shell to integrate with.
             "shell-integration = none",
-            // Opaque: the terminal is a solid tile on the app's glass sheet,
-            // and a translucent streaming region over a phone wallpaper is
+            // Opaque: the terminal is a solid tile on the app's glass sheet.
+            // A translucent streaming region over a phone wallpaper is
             // unreadable rather than pretty.
             "background-opacity = 1",
+            // Conterm's own pane bed, so a live surface is visibly distinct
+            // from the app background behind it — which also means a black
+            // rectangle unambiguously indicates a renderer that never drew.
+            "background = 0d0e13",
+            "foreground = f4f2ec",
+            // The cursor is the first thing a working terminal shows, before
+            // any output arrives at all.
+            "cursor-color = 73d9ff",
             // Room at the rounded corner so text isn't flush with it.
             "window-padding-x = 6",
             "window-padding-y = 4",

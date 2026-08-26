@@ -14,24 +14,12 @@ struct TerminalScreen: View {
 
                 switch session.state {
                 case .connecting:
-                    ConnectingOverlay(host: session.host.alias)
-                case .failed(let message):
-                    SessionMessage(title: "Couldn't connect",
-                                   detail: message,
-                                   tint: Theme.Status.danger)
-                case .closed(let reason):
-                    SessionMessage(title: "Disconnected",
-                                   detail: reason ?? "The host closed the connection.",
-                                   tint: Theme.textSecondary)
+                    EmptyView()
+                case .failed, .closed:
+                    EmptyView()
                 case .connected:
-                    // Connected but the far end has said nothing and the
-                    // grid is empty — that is a real state, and it is not
-                    // the same as a broken renderer. Say which.
-                    if session.bytesIn == 0 {
-                        SessionMessage(title: "Connected",
-                                       detail: "Waiting for the first output from \(session.host.hostname).",
-                                       tint: Theme.sshAccent)
-                    }
+                    // Status lives in the terminal's own scrollback now.
+                    EmptyView()
                 }
             }
 
@@ -58,53 +46,16 @@ extension TerminalScreen {
             Text(session.surfaceAlive
                  ? "surface \(session.grid.columns)×\(session.grid.rows)"
                  : "no surface")
-            Text("↓\(session.bytesIn)  ↑\(session.bytesOut)")
+            Text("w\(session.bytesWritten) ↓\(session.bytesIn) ↑\(session.bytesOut)")
+            Text(session.renderLayerReport)
             Spacer()
         }
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .font(.system(size: 9, weight: .medium, design: .monospaced))
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
         .foregroundStyle(Theme.textSecondary.opacity(0.75))
         .monospacedDigit()
         .padding(.horizontal, 16)
         .padding(.vertical, 5)
-    }
-}
-
-private struct ConnectingOverlay: View {
-    let host: String
-
-    var body: some View {
-        VStack(spacing: 10) {
-            ProgressView().tint(Theme.sshAccent)
-            Text("Connecting to \(host)")
-                .font(.system(size: Theme.ui(13), weight: .medium, design: .rounded))
-                .foregroundStyle(Theme.textSecondary)
-        }
-        .padding(20)
-        .glassPanel(cornerRadius: Theme.panelCorner, shadowRadius: 24, shadowY: 11)
-        .transition(.scale(scale: 0.96).combined(with: .opacity))
-        .rollUp()
-    }
-}
-
-private struct SessionMessage: View {
-    let title: String
-    let detail: String
-    let tint: Color
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Text(title)
-                .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
-                .foregroundStyle(tint)
-            Text(detail)
-                .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(20)
-        .frame(maxWidth: 320)
-        .glassPanel(cornerRadius: Theme.panelCorner, shadowRadius: 24, shadowY: 11)
-        .transition(.scale(scale: 0.96).combined(with: .opacity))
-        .rollUp()
     }
 }

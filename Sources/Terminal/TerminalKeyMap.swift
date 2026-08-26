@@ -121,6 +121,17 @@ enum TerminalKeyMap {
         return ghostty_input_mods_e(raw)
     }
 
+    /// Translate text on its way to the terminal.
+    ///
+    /// UIKit hands back "\n" when Return is pressed. A terminal wants
+    /// **CR** — a shell reading its line discipline ignores a bare LF, which
+    /// is why Return appeared to do nothing whatsoever.
+    static func forTerminal(_ text: String) -> String {
+        guard text.contains("\n") else { return text }
+        return text.replacingOccurrences(of: "\r\n", with: "\r")
+                   .replacingOccurrences(of: "\n", with: "\r")
+    }
+
     /// The C0 control code a character produces when Ctrl is held.
     ///
     /// `Ctrl-A`..`Ctrl-Z` are 0x01..0x1A, and the handful of punctuation

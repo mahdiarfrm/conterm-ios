@@ -23,12 +23,30 @@ final class TerminalSurfaceView: UIView {
     /// own layer stays a plain one.
     private(set) var controller: SurfaceController?
 
+    /// What libghostty actually attached to us, for diagnosis.
+    ///
+    /// The renderer adds its own layer as a sublayer on iOS. If this is
+    /// empty, the renderer never initialised — a completely different
+    /// problem from a renderer that is drawing nothing.
+    var renderLayerReport: String {
+        let subs = layer.sublayers ?? []
+        guard let first = subs.first else { return "no render layer" }
+        let f = first.frame
+        return "\(subs.count) layer \(Int(f.width))x\(Int(f.height)) "
+             + "@\(String(format: "%.0f", first.contentsScale))x "
+             + (first.contents == nil ? "no contents" : "has contents")
+    }
+
     /// Modifier keys latched by the accessory bar. A phone keyboard has no
     /// Ctrl, so the accessory row provides one and it applies to exactly the
     /// next keystroke — the behaviour people expect from a sticky modifier.
     var stickyModifiers: ghostty_input_mods_e = GHOSTTY_MODS_NONE
 
     private var keyboardHeight: CGFloat = 0
+    // nonisolated(unsafe): deinit runs outside the actor and must invalidate
+    // this, and CADisplayLink is not Sendable. Only ever touched on the main
+    // thread, which is where both UIKit and deinit for a view actually run.
+    private nonisolated(unsafe) var displayLink: CADisplayLink?
 
     init(app: Ghostty.App, fontSize: Float = 14) {
         // Non-zero on purpose — see invariant 1. The real size arrives at the
@@ -47,6 +65,7 @@ final class TerminalSurfaceView: UIView {
     required init?(coder: NSCoder) { fatalError("not supported") }
 
     deinit {
+        displayLink?.invalidate()
         // `close()` is main-actor isolated and deinit is not; the controller
         // is owned solely by this view, so hand it over rather than reaching
         // into it from here.
@@ -59,21 +78,61 @@ final class TerminalSurfaceView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // libghostty's sublayer does not participate in Auto Layout.
+        // libghostty adds its own layer as a sublayer (UIView.layer is
+        // read-only, unlike NSView's), and that sublayer does not
+        // participate in Auto Layout — without this it keeps whatever
+        // size it had when the renderer attached it, which is nothing.
         for sublayer in layer.sublayers ?? [] {
             sublayer.frame = layer.bounds
+            sublayer.contentsScale = contentScaleFactor
         }
-        MainActor.assumeIsolated { controller?.updateSize() }
+        MainActor.assumeIsolated {
+            controller?.updateSize()
+            controller?.markNeedsDisplay()
+        }
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        guard let window else { return }
-        contentScaleFactor = window.screen.scale
         MainActor.assumeIsolated {
-            controller?.updateSize()
-            controller?.setVisible(true)
+            if window != nil {
+                contentScaleFactor = window?.screen.scale ?? UIScreen.main.scale
+                controller?.updateSize()
+                controller?.setVisible(true)
+                controller?.markNeedsDisplay()
+                startDisplayLink()
+            } else {
+                controller?.setVisible(false)
+                stopDisplayLink()
+            }
         }
+    }
+
+    // MARK: - Presentation
+    //
+    // libghostty renders into an IOSurface but the embedded apprt expects
+    // the host to ask for frames — `ghostty_surface_draw` is that ask. Without
+    // it the surface is created, sized, and fed, and never presents anything:
+    // a black rectangle that looks exactly like a broken renderer.
+
+    private func startDisplayLink() {
+        guard displayLink == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(step))
+        // A terminal has nothing to say most of the time, and the draw is
+        // skipped unless something changed — but capping the rate keeps a
+        // burst of output from pinning the GPU at 120Hz on a ProMotion phone.
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 60, preferred: 60)
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    private func stopDisplayLink() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    @objc private func step() {
+        MainActor.assumeIsolated { controller?.drawIfNeeded() }
     }
 
     // MARK: - First responder
@@ -114,11 +173,11 @@ extension TerminalSurfaceView: UIKeyInput {
             if stickyModifiers.rawValue & GHOSTTY_MODS_ALT.rawValue != 0 {
                 // Alt is ESC-prefix, which is what every terminal program
                 // actually reads it as.
-                controller.send("\u{1b}" + text)
+                controller.send("\u{1b}" + TerminalKeyMap.forTerminal(text))
                 stickyModifiers = GHOSTTY_MODS_NONE
                 return
             }
-            controller.send(text)
+            controller.send(TerminalKeyMap.forTerminal(text))
         }
     }
 

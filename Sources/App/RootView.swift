@@ -14,7 +14,11 @@ struct RootView: View {
             } else if let error = ghostty.startupError {
                 StartupFailureView(message: error)
             } else if let app = ghostty.app {
-                HostListView(app: app)
+                if ProcessInfo.processInfo.environment["CONTERM_DEMO"] == "1" {
+                    RenderCheckScreen(app: app)
+                } else {
+                    HostListView(app: app)
+                }
             } else {
                 ProgressView().tint(Theme.accentOnDark)
             }
@@ -58,5 +62,33 @@ private struct StartupFailureView: View {
         .padding(28)
         .glassPanel(cornerRadius: Theme.sheetCorner)
         .padding(32)
+    }
+}
+
+
+/// Standalone surface with no networking, for proving the renderer works.
+private struct RenderCheckScreen: View {
+    let app: Ghostty.App
+    @State private var session: TerminalSession?
+
+    var body: some View {
+        Group {
+            if let session {
+                TerminalScreen(session: session)
+            } else {
+                Color.clear
+            }
+        }
+        .task {
+            guard session == nil else { return }
+            let host = Host(alias: "render-check", hostname: "localhost",
+                            username: "none")
+            let s = TerminalSession(host: host, app: app)
+            session = s
+            // One runloop, so the surface is mounted and sized before we
+            // write into it — otherwise the grid is still 0x0.
+            try? await Task.sleep(for: .milliseconds(120))
+            s.runRenderCheck()
+        }
     }
 }

@@ -37,6 +37,8 @@ final class TerminalSession: Identifiable, Hashable {
     private(set) var bytesOut = 0
     var surfaceAlive: Bool { surfaceView.controller?.handle != nil }
     var grid: (columns: Int, rows: Int) { surfaceView.controller?.gridSize ?? (0, 0) }
+    var renderLayerReport: String { surfaceView.renderLayerReport }
+    var bytesWritten: Int { surfaceView.controller?.bytesWritten ?? 0 }
 
     private let transport = Libssh2Transport()
     private let log = Logger(subsystem: "dev.conterm.ios", category: "session")
@@ -64,9 +66,59 @@ final class TerminalSession: Identifiable, Hashable {
         }
     }
 
+    /// Write a line into the terminal itself.
+    ///
+    /// Status has been living in overlays on top of the surface, which means
+    /// a surface that never draws and a connection that never lands look
+    /// identical. Putting status *inside* the terminal makes rendering
+    /// self-evident: if you can read this, the renderer works.
+    func banner(_ text: String, tint: Banner = .dim) {
+        surfaceView.controller?.write(Data((tint.prefix + text + "\u{1b}[0m\r\n").utf8))
+    }
+
+    enum Banner {
+        case dim, good, bad, accent
+        var prefix: String {
+            switch self {
+            case .dim: return "\u{1b}[2m"
+            case .good: return "\u{1b}[32m"
+            case .bad: return "\u{1b}[31m"
+            case .accent: return "\u{1b}[36m"
+            }
+        }
+    }
+
+    /// Open the surface with no connection at all and write into it.
+    ///
+    /// This exists to separate two failures that look identical: a renderer
+    /// that never draws, and a connection that never lands. If text appears
+    /// here, the Ghostty surface and the external termio backend both work
+    /// and the problem is the network. Reachable with CONTERM_DEMO=1.
+    func runRenderCheck() {
+        state = .connected
+        banner("Conterm \u{2014} render check", tint: .accent)
+        banner("")
+        banner("If you can read this, the Ghostty surface is drawing and", tint: .good)
+        banner("the external termio backend is carrying bytes.", tint: .good)
+        banner("")
+        banner("libghostty \(Ghostty.versionString)")
+        let g = grid
+        banner("grid \(g.columns)\u{00d7}\(g.rows)")
+        banner("")
+        banner("Typing echoes locally; nothing is connected.")
+        banner("")
+        // Echo what is typed, so the input path is exercised too.
+        surfaceView.controller?.onWrite = { [weak self] data in
+            self?.surfaceView.controller?.write(data)
+        }
+    }
+
     func connect(credentials: SSHCredentials) {
         state = .connecting
         let controller = surfaceView.controller
+
+        banner("Conterm \u{2014} \(host.displaySubtitle)", tint: .accent)
+        banner("connecting\u{2026}")
 
         Task { [transport, weak self] in
             // Wire -> terminal. Set before connecting so nothing that arrives
@@ -80,6 +132,7 @@ final class TerminalSession: Identifiable, Hashable {
             await transport.setOnClosed { reason in
                 Task { @MainActor in
                     self?.state = .closed(reason)
+                    self?.banner(reason ?? "connection closed", tint: .bad)
                     SoundEffects.shared.play(.disconnect)
                 }
             }
@@ -94,12 +147,16 @@ final class TerminalSession: Identifiable, Hashable {
                 try await transport.openShell(columns: grid.columns, rows: grid.rows)
                 await MainActor.run {
                     self?.state = .connected
+                    self?.banner("connected", tint: .good)
                     SoundEffects.shared.play(.notify)
                     Haptics.shared.fire(.success)
                 }
             } catch {
                 await MainActor.run {
                     self?.state = .failed(error.localizedDescription)
+                    // Into the terminal as well as the overlay: the overlay
+                    // is dismissable and the scrollback is not.
+                    self?.banner(error.localizedDescription, tint: .bad)
                     SoundEffects.shared.play(.error)
                     Haptics.shared.fire(.failure)
                 }

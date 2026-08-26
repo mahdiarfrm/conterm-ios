@@ -93,19 +93,27 @@ struct KeyStore {
             return SSHCredentials(address: host.address, method: .password(password))
 
         case .privateKey:
-            guard let key = get(for: host.id, kind: .privateKey) else { return nil }
+            // The key material belongs to the library entry, not the host —
+            // but the passphrase is stored per host, since the same key may
+            // be unlocked differently in different contexts.
+            guard let keyID = host.keyID,
+                  let material = KeyStore.shared.get(for: keyID, kind: .privateKey)
+            else { return nil }
             return SSHCredentials(
                 address: host.address,
-                method: .privateKey(private: key,
+                method: .privateKey(private: material,
                                     public: nil,
-                                    passphrase: get(for: host.id, kind: .passphrase)))
+                                    passphrase: get(for: keyID, kind: .passphrase)
+                                        ?? get(for: host.id, kind: .passphrase)))
         }
     }
 
     func hasSecret(for host: Host) -> Bool {
         switch host.auth {
         case .password: return get(for: host.id, kind: .password) != nil
-        case .privateKey: return get(for: host.id, kind: .privateKey) != nil
+        case .privateKey:
+            guard let keyID = host.keyID else { return false }
+            return get(for: keyID, kind: .privateKey) != nil
         }
     }
 }

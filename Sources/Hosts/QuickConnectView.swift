@@ -20,6 +20,9 @@ struct QuickConnectView: View {
     @State private var auth: Host.AuthKind = .password
     @State private var save = false
     @State private var error: String?
+    @State private var library = KeyLibrary.shared
+    @State private var keyID: UUID?
+    @State private var managingKeys = false
 
     /// `user@host:port`, `user@host`, or bare `host`. Port and user are
     /// optional; a missing user is the one thing we cannot guess, since the
@@ -46,7 +49,13 @@ struct QuickConnectView: View {
         return (user, rest, port)
     }
 
-    private var isValid: Bool { parsed != nil && !secret.isEmpty }
+    private var isValid: Bool {
+        guard parsed != nil else { return false }
+        switch auth {
+        case .password: return !secret.isEmpty
+        case .privateKey: return keyID != nil
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -74,12 +83,24 @@ struct QuickConnectView: View {
                     case .password:
                         SecureField("Password", text: $secret)
                     case .privateKey:
-                        TextEditor(text: $secret)
-                            .font(.system(size: 11, design: .monospaced))
-                            .frame(minHeight: 110)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
-                        SecureField("Key passphrase (if any)", text: $passphrase)
+                        if library.keys.isEmpty {
+                            Button { managingKeys = true } label: {
+                                Label("Import a key", systemImage: "key.fill")
+                            }
+                        } else {
+                            Picker("Key", selection: $keyID) {
+                                Text("None").tag(UUID?.none)
+                                ForEach(library.keys) { key in
+                                    Text(key.name).tag(UUID?.some(key.id))
+                                }
+                            }
+                            if let id = keyID, library.key(withID: id)?.isEncrypted == true {
+                                SecureField("Key passphrase", text: $passphrase)
+                            }
+                            Button { managingKeys = true } label: {
+                                Label("Manage keys", systemImage: "key")
+                            }
+                        }
                     }
                 }
 
@@ -99,6 +120,7 @@ struct QuickConnectView: View {
             }
             .scrollContentBackground(.hidden)
             .background(Theme.appBackground.ignoresSafeArea())
+            .sheet(isPresented: $managingKeys) { KeyLibraryView() }
             .navigationTitle("Quick Connect")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -121,18 +143,28 @@ struct QuickConnectView: View {
 
         var host = Host(alias: p.host, hostname: p.host,
                         port: p.port, username: p.user, auth: auth)
+        host.keyID = keyID
 
-        let method: SSHCredentials.Method = auth == .password
-            ? .password(secret)
-            : .privateKey(private: secret, public: nil,
-                          passphrase: passphrase.isEmpty ? nil : passphrase)
+        let method: SSHCredentials.Method
+        switch auth {
+        case .password:
+            method = .password(secret)
+        case .privateKey:
+            guard let id = keyID, let material = library.material(for: id) else {
+                error = "That key could not be read back from the Keychain."
+                return
+            }
+            method = .privateKey(private: material, public: nil,
+                                 passphrase: passphrase.isEmpty ? nil : passphrase)
+        }
 
         if save {
             do {
-                try KeyStore.shared.set(secret, for: host.id,
-                                        kind: auth == .password ? .password : .privateKey)
-                if !passphrase.isEmpty {
-                    try KeyStore.shared.set(passphrase, for: host.id, kind: .passphrase)
+                if auth == .password {
+                    try KeyStore.shared.set(secret, for: host.id, kind: .password)
+                }
+                if !passphrase.isEmpty, let id = keyID {
+                    try KeyStore.shared.set(passphrase, for: id, kind: .passphrase)
                 }
                 host.lastConnectedAt = Date()
                 store.add(host)

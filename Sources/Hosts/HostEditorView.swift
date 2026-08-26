@@ -16,6 +16,8 @@ struct HostEditorView: View {
     @State private var secret: String = ""
     @State private var passphrase: String = ""
     @State private var error: String?
+    @State private var library = KeyLibrary.shared
+    @State private var managingKeys = false
 
     init(store: HostStore, existing: Host? = nil) {
         self.store = store
@@ -24,9 +26,18 @@ struct HostEditorView: View {
     }
 
     private var isValid: Bool {
-        !host.hostname.trimmed.isEmpty
-            && !host.username.trimmed.isEmpty
-            && (1...65535).contains(host.port)
+        guard !host.hostname.trimmed.isEmpty,
+              !host.username.trimmed.isEmpty,
+              (1...65535).contains(host.port) else { return false }
+        // Choosing key auth without choosing a key would save a host that
+        // cannot connect.
+        if host.auth == .privateKey && host.keyID == nil { return false }
+        return true
+    }
+
+    private var selectedKeyNeedsPassphrase: Bool {
+        guard let id = host.keyID else { return false }
+        return library.key(withID: id)?.isEncrypted ?? false
     }
 
     var body: some View {
@@ -61,17 +72,31 @@ struct HostEditorView: View {
                         SecureField("Password", text: $secret)
                             .textContentType(.password)
                     case .privateKey:
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Paste an OpenSSH or PEM private key")
-                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                        if library.keys.isEmpty {
+                            Button {
+                                managingKeys = true
+                            } label: {
+                                Label("Import a key", systemImage: "key.fill")
+                            }
+                            Text("Import id_rsa or id_ed25519 once and use it on any host.")
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
                                 .foregroundStyle(Theme.textSecondary)
-                            TextEditor(text: $secret)
-                                .font(.system(size: 11, design: .monospaced))
-                                .frame(minHeight: 120)
-                                .autocorrectionDisabled()
-                                .textInputAutocapitalization(.never)
+                        } else {
+                            Picker("Key", selection: $host.keyID) {
+                                Text("None").tag(UUID?.none)
+                                ForEach(library.keys) { key in
+                                    Text(key.name).tag(UUID?.some(key.id))
+                                }
+                            }
+                            Button {
+                                managingKeys = true
+                            } label: {
+                                Label("Manage keys", systemImage: "key")
+                            }
+                            if selectedKeyNeedsPassphrase {
+                                SecureField("Key passphrase", text: $passphrase)
+                            }
                         }
-                        SecureField("Key passphrase (if any)", text: $passphrase)
                     }
                 }
 
@@ -105,6 +130,7 @@ struct HostEditorView: View {
                 }
             }
             .onAppear(perform: loadExistingSecret)
+            .sheet(isPresented: $managingKeys) { KeyLibraryView() }
         }
         .tint(Theme.accentOnDark)
     }
@@ -126,13 +152,11 @@ struct HostEditorView: View {
         h.username = h.username.trimmed
 
         do {
-            if !secret.isEmpty {
-                try KeyStore.shared.set(secret,
-                                        for: h.id,
-                                        kind: h.auth == .password ? .password : .privateKey)
+            if h.auth == .password && !secret.isEmpty {
+                try KeyStore.shared.set(secret, for: h.id, kind: .password)
             }
-            if !passphrase.isEmpty {
-                try KeyStore.shared.set(passphrase, for: h.id, kind: .passphrase)
+            if !passphrase.isEmpty, let keyID = h.keyID {
+                try KeyStore.shared.set(passphrase, for: keyID, kind: .passphrase)
             }
         } catch {
             self.error = error.localizedDescription

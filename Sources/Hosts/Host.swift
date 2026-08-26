@@ -14,6 +14,9 @@ struct Host: Identifiable, Codable, Hashable, Sendable {
     var port: Int = 22
     var username: String
     var auth: AuthKind = .password
+    /// Which imported key to use, when `auth == .privateKey`. Keys live in
+    /// the library so one id_rsa can serve twelve hosts.
+    var keyID: UUID?
     /// Group membership, mirroring Conterm's colour-coded tab groups.
     var groupID: UUID?
     /// Learned from a probe, used for the distro mark on the row.

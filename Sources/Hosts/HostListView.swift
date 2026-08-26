@@ -14,6 +14,7 @@ struct HostListView: View {
     @State private var quickConnecting = false
     @State private var notice: String?
     @State private var paletteOpen = false
+    @State private var keysOpen = false
 
     private var filtered: [Host] {
         let base = store.hosts.sorted {
@@ -41,7 +42,8 @@ struct HostListView: View {
                 if store.hosts.isEmpty {
                     EmptyHostsView(creating: $creating,
                                    importing: $importing,
-                                   quickConnecting: $quickConnecting)
+                                   quickConnecting: $quickConnecting,
+                                   keysOpen: $keysOpen)
                 } else {
                     list
                 }
@@ -59,8 +61,10 @@ struct HostListView: View {
                                onOverview: { overview = $0 },
                                onNewHost: { creating = true },
                                onQuickConnect: { quickConnecting = true },
-                               onImport: { importing = true })
+                               onImport: { importing = true },
+                               onKeys: { keysOpen = true })
             }
+            .sheet(isPresented: $keysOpen) { KeyLibraryView() }
             .sheet(isPresented: $creating) { HostEditorView(store: store) }
             .sheet(isPresented: $quickConnecting) {
                 QuickConnectView(app: app, store: store) { session = $0 }
@@ -95,6 +99,7 @@ struct HostListView: View {
                 }
             }
             Spacer(minLength: 8)
+            headerButton("key") { keysOpen = true }
             headerButton("square.and.arrow.down") { importing = true }
             headerButton("plus") { creating = true }
         }
@@ -255,6 +260,7 @@ private struct EmptyHostsView: View {
     @Binding var creating: Bool
     @Binding var importing: Bool
     @Binding var quickConnecting: Bool
+    @Binding var keysOpen: Bool
 
     var body: some View {
         VStack(spacing: 14) {
@@ -290,7 +296,14 @@ private struct EmptyHostsView: View {
                     .frame(height: Theme.hitTarget)
                     .glassPill(tone: .dark)
 
-                Button("Import config") { importing = true }
+                Button("Keys") { keysOpen = true }
+                    .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.accentOnDark)
+                    .padding(.horizontal, 18)
+                    .frame(height: Theme.hitTarget)
+                    .glassPill(tone: .dark)
+
+                Button("Import ssh config") { importing = true }
                     .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.accentOnDark)
                     .padding(.horizontal, 18)

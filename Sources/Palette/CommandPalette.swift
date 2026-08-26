@@ -25,6 +25,7 @@ struct CommandPalette: View {
     let onNewHost: () -> Void
     let onQuickConnect: () -> Void
     let onImport: () -> Void
+    let onKeys: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
@@ -83,7 +84,8 @@ struct CommandPalette: View {
         let actions: [(String, String, String, () -> Void)] = [
             ("Quick Connect", "user@host, nothing saved", "bolt.horizontal.fill", onQuickConnect),
             ("New Host", "Save a host you use often", "plus.circle", onNewHost),
-            ("Import ssh config", "Bring across a fleet", "square.and.arrow.down", onImport),
+            ("Import ssh config", "Bring across a fleet of hosts", "square.and.arrow.down", onImport),
+            ("Keys", "Import id_rsa or id_ed25519", "key.fill", onKeys),
         ]
         for (title, subtitle, symbol, run) in actions {
             guard q.isEmpty || title.lowercased().contains(q) else { continue }

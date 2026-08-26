@@ -13,6 +13,8 @@ struct HostOverviewView: View {
     /// a terminal without owning session creation itself.
     var onOpenShell: ((Host) -> Void)?
 
+    @State private var showingAgents = false
+
     @State private var probe: HostProbeModel?
     @State private var failure: String?
 
@@ -47,11 +49,19 @@ struct HostOverviewView: View {
                 }
                 .disabled(probe == nil)
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                // "What is this box doing" and "what are my agents doing" are
+                // the same question asked at two zoom levels.
+                Button { showingAgents = true } label: {
+                    Image(systemName: "sparkles")
+                }
+            }
         }
         // A briefing that finds a problem has to lead somewhere. Without
         // this you read "3 failed units", go back, find the host, and tap it
         // again — three steps to act on what the screen just told you.
         .safeAreaInset(edge: .bottom) { openShellBar }
+        .navigationDestination(isPresented: $showingAgents) { AgentCenterView(host: host) }
         .refreshable { refresh() }
         .task { start() }
     }

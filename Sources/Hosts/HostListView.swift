@@ -9,6 +9,7 @@ struct HostListView: View {
     @State private var query = ""
     @State private var session: TerminalSession?
     @State private var overview: Host?
+    @State private var agentsFor: Host?
     @State private var editing: Host?
     @State private var creating = false
     @State private var importing = false
@@ -122,6 +123,7 @@ struct HostListView: View {
                           allowedContentTypes: [.item],
                           allowsMultipleSelection: false) { importConfig($0) }
             .navigationDestination(item: $session) { TerminalScreen(session: $0) }
+            .navigationDestination(item: $agentsFor) { AgentCenterView(host: $0) }
             .navigationDestination(item: $overview) { host in
                 HostOverviewView(host: host) { target in
                     overview = nil
@@ -329,6 +331,7 @@ struct HostListView: View {
         }
         Button("Edit host", systemImage: "pencil") { editing = host }
         Button("Overview", systemImage: "info.circle") { overview = host }
+        Button("Agents", systemImage: "sparkles") { agentsFor = host }
     }
 
     private func groupHeader(_ group: HostGroup, count: Int) -> some View {

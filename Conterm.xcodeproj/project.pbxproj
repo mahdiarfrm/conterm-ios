@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		B1000010000000000000001 /* Resources in Resources */ = {isa = PBXBuildFile; fileRef = B1000002000000000000001 /* Resources */; };
 		B1000021000000000000001 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000020000000000000001 /* GhosttyKit.xcframework */; };
 		B1000021000000000000002 /* ssh2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000020000000000000002 /* ssh2.xcframework */; };
 		B1000021000000000000003 /* crypto.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000020000000000000003 /* crypto.xcframework */; };
@@ -16,7 +15,6 @@
 
 /* Begin PBXFileReference section */
 		B1000001000000000000001 /* Conterm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Conterm.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B1000002000000000000001 /* Resources */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources; sourceTree = "<group>"; };
 		B1000001000000000000002 /* ContermTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ContermTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1000020000000000000001 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GhosttyKit.xcframework; path = Vendor/GhosttyKit.xcframework; sourceTree = "<group>"; };
 		B1000020000000000000002 /* ssh2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ssh2.xcframework; path = Vendor/ssh2.xcframework; sourceTree = "<group>"; };
@@ -56,7 +54,6 @@
 			children = (
 				B1000003000000000000001 /* Sources */,
 				B1000003000000000000002 /* Tests */,
-				B1000002000000000000001 /* Resources */,
 				B1000022000000000000001 /* Vendor */,
 				B1000006000000000000001 /* Products */,
 			);
@@ -169,7 +166,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B1000010000000000000001 /* Resources in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

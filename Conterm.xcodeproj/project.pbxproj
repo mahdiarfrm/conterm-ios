@@ -11,6 +11,10 @@
 		B1000021000000000000002 /* ssh2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000020000000000000002 /* ssh2.xcframework */; };
 		B1000021000000000000003 /* crypto.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000020000000000000003 /* crypto.xcframework */; };
 		B1000021000000000000004 /* ssl.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000020000000000000004 /* ssl.xcframework */; };
+		B1000031000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000001 /* Assets.xcassets */; };
+		B1000031000000000000002 /* michroma-regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000002 /* michroma-regular.ttf */; };
+		B1000031000000000000003 /* text-logo.png in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000003 /* text-logo.png */; };
+		B1000031000000000000004 /* michroma-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000004 /* michroma-OFL.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -30,6 +34,10 @@
 		B1000020000000000000002 /* ssh2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ssh2.xcframework; path = Vendor/ssh2.xcframework; sourceTree = "<group>"; };
 		B1000020000000000000003 /* crypto.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = crypto.xcframework; path = Vendor/crypto.xcframework; sourceTree = "<group>"; };
 		B1000020000000000000004 /* ssl.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ssl.xcframework; path = Vendor/ssl.xcframework; sourceTree = "<group>"; };
+		B1000030000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Resources/Assets.xcassets; sourceTree = "<group>"; };
+		B1000030000000000000002 /* michroma-regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "michroma-regular.ttf"; path = "Resources/michroma-regular.ttf"; sourceTree = "<group>"; };
+		B1000030000000000000003 /* text-logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "text-logo.png"; path = "Resources/text-logo.png"; sourceTree = "<group>"; };
+		B1000030000000000000004 /* michroma-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = "michroma-OFL.txt"; path = "Resources/michroma-OFL.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -72,6 +80,10 @@
 			children = (
 				B1000003000000000000001 /* Sources */,
 				B1000003000000000000002 /* Tests */,
+				B1000030000000000000001 /* Assets.xcassets */,
+				B1000030000000000000003 /* text-logo.png */,
+				B1000030000000000000002 /* michroma-regular.ttf */,
+				B1000030000000000000004 /* michroma-OFL.txt */,
 				B1000022000000000000001 /* Vendor */,
 				B1000006000000000000001 /* Products */,
 			);
@@ -186,6 +198,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B1000031000000000000001 /* Assets.xcassets in Resources */,
+				B1000031000000000000002 /* michroma-regular.ttf in Resources */,
+				B1000031000000000000003 /* text-logo.png in Resources */,
+				B1000031000000000000004 /* michroma-OFL.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

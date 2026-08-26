@@ -7,6 +7,7 @@ struct HostListView: View {
     @State private var store = HostStore()
     @State private var query = ""
     @State private var session: TerminalSession?
+    @State private var overview: Host?
     @State private var editing: Host?
     @State private var creating = false
     @State private var importing = false
@@ -45,6 +46,12 @@ struct HostListView: View {
             .background(Theme.backdropDark.ignoresSafeArea())
             .navigationTitle("Hosts")
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    ContermWordmark(height: 18)
+                        .foregroundStyle(Theme.accentOnDark)
+                }
+            }
+            .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { importing = true } label: {
                         Image(systemName: "square.and.arrow.down")
@@ -75,6 +82,7 @@ struct HostListView: View {
                           allowedContentTypes: [.item],
                           allowsMultipleSelection: false) { importConfig($0) }
             .navigationDestination(item: $session) { TerminalScreen(session: $0) }
+            .navigationDestination(item: $overview) { HostOverviewView(host: $0) }
             .alert("Import", isPresented: .constant(notice != nil)) {
                 Button("OK") { notice = nil }
             } message: {
@@ -87,12 +95,26 @@ struct HostListView: View {
     private var list: some View {
         List {
             ForEach(filtered) { host in
-                Button { open(host) } label: { HostRow(host: host) }
-                    .listRowBackground(Color.clear)
-                    .swipeActions(edge: .trailing) {
-                        Button("Delete", role: .destructive) { store.delete(host) }
-                        Button("Edit") { editing = host }.tint(Theme.Status.working)
+                HStack(spacing: 0) {
+                    Button { open(host) } label: { HostRow(host: host) }
+                        .buttonStyle(.plain)
+                    // The briefing is a peer of connecting, not buried in a
+                    // menu — "how is that box?" is the question you open the
+                    // app for as often as "give me a shell".
+                    Button { overview = host } label: {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: Theme.ui(15), weight: .medium))
+                            .foregroundStyle(Theme.textSecondary)
+                            .frame(width: Theme.hitTarget, height: Theme.hitTarget)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                }
+                .listRowBackground(Color.clear)
+                .swipeActions(edge: .trailing) {
+                    Button("Delete", role: .destructive) { store.delete(host) }
+                    Button("Edit") { editing = host }.tint(Theme.Status.working)
+                }
             }
         }
         .listStyle(.plain)

@@ -27,27 +27,21 @@ extension Ghostty {
         init?(config: Config) {
             guard Ghostty.initializeOnce() else { return nil }
 
+            // These are file-scope functions rather than closures written
+            // here on purpose. A closure formed inside a `@MainActor` type
+            // inherits that isolation, and converting one to a C function
+            // pointer makes Swift 6 insert a dynamic executor check at its
+            // entry — which traps the moment libghostty calls it from the
+            // renderer or IO thread, as every one of these is meant to be.
             var runtime = ghostty_runtime_config_s(
                 userdata: nil,
                 supports_selection_clipboard: false,
-                wakeup_cb: { _ in App.current?.scheduleTick() },
-                action_cb: { _, target, action in App.handle(target: target, action: action) },
-                read_clipboard_cb: { _, location, state in
-                    App.readClipboard(location: location, state: state)
-                },
-                confirm_read_clipboard_cb: { _, _, _, _ in
-                    // Nothing on iOS can paste into a terminal without the
-                    // user having tapped Paste, so there is nothing left to
-                    // confirm. The system already asked.
-                },
-                write_clipboard_cb: { _, location, content, count, confirm in
-                    App.writeClipboard(location: location, content: content,
-                                       count: count, confirm: confirm)
-                },
-                close_surface_cb: { userdata, processAlive in
-                    SurfaceRegistry.shared.requestClose(userdata: userdata,
-                                                        processAlive: processAlive)
-                }
+                wakeup_cb: ghosttyWakeup,
+                action_cb: ghosttyAction,
+                read_clipboard_cb: ghosttyReadClipboard,
+                confirm_read_clipboard_cb: ghosttyConfirmReadClipboard,
+                write_clipboard_cb: ghosttyWriteClipboard,
+                close_surface_cb: ghosttyCloseSurface
             )
 
             guard let handle = ghostty_app_new(&runtime, config.handle) else {
@@ -98,51 +92,6 @@ extension Ghostty {
 
         // MARK: - Callbacks
 
-        /// Decode and dispatch an action.
-        ///
-        /// **This must finish reading the action before it returns.**
-        /// `ghostty_action_s` carries `const char*` fields that libghostty
-        /// frees the moment the callback returns, so anything we want later
-        /// has to be copied into Swift memory *here*, not after a hop to the
-        /// main queue.
-        nonisolated static func handle(target: ghostty_target_s,
-                                       action: ghostty_action_s) -> Bool {
-            SurfaceRegistry.shared.handle(target: target, action: action)
-        }
-
-        nonisolated static func readClipboard(location: ghostty_clipboard_e,
-                                              state: UnsafeMutableRawPointer?) -> Bool {
-            // Reading the pasteboard from a background thread is not allowed,
-            // and libghostty wants an answer synchronously. Surfaces route
-            // paste through `SurfaceController.paste()` instead, which runs
-            // on the main actor where UIPasteboard is legal.
-            _ = location
-            _ = state
-            return false
-        }
-
-        nonisolated static func writeClipboard(location: ghostty_clipboard_e,
-                                               content: UnsafePointer<ghostty_clipboard_content_s>?,
-                                               count: Int,
-                                               confirm: Bool) {
-            _ = confirm
-            guard location == GHOSTTY_CLIPBOARD_STANDARD,
-                  let content, count > 0 else { return }
-            // Copy out of libghostty's memory before hopping threads: these
-            // pointers are freed as soon as this callback returns.
-            var text: String?
-            for i in 0..<count {
-                let item = content[i]
-                let mime = item.mime.map { String(cString: $0) } ?? "text/plain"
-                guard mime.hasPrefix("text/"), let data = item.data else { continue }
-                text = String(cString: data)
-                break
-            }
-            guard let text else { return }
-            DispatchQueue.main.async {
-                UIPasteboard.general.string = text
-            }
-        }
     }
 
     /// A libghostty configuration.
@@ -225,4 +174,75 @@ extension Ghostty {
             }
         }
     }
+}
+
+// MARK: - C callbacks
+//
+// libghostty calls these from whichever thread happens to be running: the
+// renderer thread when a frame is ready, the IO thread when output arrives,
+// the main thread during a tick. They must therefore be genuinely
+// non-isolated — not "main-actor code we promise to call on main". Each one
+// copies what it needs out of libghostty's memory (which is freed as soon as
+// the call returns) and hands the result to the main actor itself.
+
+private nonisolated func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
+    Ghostty.App.current?.scheduleTick()
+}
+
+private nonisolated func ghosttyAction(
+    _ app: ghostty_app_t?,
+    _ target: ghostty_target_s,
+    _ action: ghostty_action_s
+) -> Bool {
+    SurfaceRegistry.shared.handle(target: target, action: action)
+}
+
+private nonisolated func ghosttyReadClipboard(
+    _ userdata: UnsafeMutableRawPointer?,
+    _ location: ghostty_clipboard_e,
+    _ state: UnsafeMutableRawPointer?
+) -> Bool {
+    // Reading the pasteboard off the main thread is not allowed, and
+    // libghostty wants an answer synchronously. Surfaces route paste through
+    // `SurfaceController.paste()` instead, where UIPasteboard is legal.
+    false
+}
+
+private nonisolated func ghosttyConfirmReadClipboard(
+    _ userdata: UnsafeMutableRawPointer?,
+    _ text: UnsafePointer<CChar>?,
+    _ state: UnsafeMutableRawPointer?,
+    _ request: ghostty_clipboard_request_e
+) {
+    // Nothing on iOS can paste into a terminal without the user having
+    // tapped Paste, so there is nothing left to confirm.
+}
+
+private nonisolated func ghosttyWriteClipboard(
+    _ userdata: UnsafeMutableRawPointer?,
+    _ location: ghostty_clipboard_e,
+    _ content: UnsafePointer<ghostty_clipboard_content_s>?,
+    _ count: Int,
+    _ confirm: Bool
+) {
+    guard location == GHOSTTY_CLIPBOARD_STANDARD, let content, count > 0 else { return }
+    // Copy out of libghostty's memory before hopping threads: these pointers
+    // are freed as soon as this callback returns.
+    var text: String?
+    for i in 0..<count {
+        let item = content[i]
+        let mime = item.mime.map { String(cString: $0) } ?? "text/plain"
+        guard mime.hasPrefix("text/"), let data = item.data else { continue }
+        text = String(cString: data)
+        break
+    }
+    guard let text else { return }
+    DispatchQueue.main.async { UIPasteboard.general.string = text }
+}
+
+private nonisolated func ghosttyCloseSurface(
+    _ userdata: UnsafeMutableRawPointer?,
+    _ processAlive: Bool
+) {
+    SurfaceRegistry.shared.requestClose(userdata: userdata, processAlive: processAlive)
 }

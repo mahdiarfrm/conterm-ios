@@ -111,6 +111,31 @@ final class TerminalSession: Identifiable, Hashable {
         surfaceView.controller?.onWrite = { [weak self] data in
             self?.surfaceView.controller?.write(data)
         }
+
+        // Drive one keystroke through the whole loop: ghostty_surface_text
+        // -> External.queueWrite -> the write callback on libghostty's IO
+        // thread -> back in as output. If this echoes, the input half works
+        // too, which no amount of staring at the screen can tell you.
+        send("input path ok\r")
+
+        // Report what the emulator and the layer actually hold, a beat later
+        // so the display link has had frames to present. This is the probe
+        // that found the libxev wakeup bug and it is cheap, so it stays.
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(600))
+            self?.dumpDiagnostics()
+        }
+    }
+
+    /// Print what the terminal contains and what the render layer looks like.
+    func dumpDiagnostics() {
+        let text = surfaceView.controller?.viewportText
+        let trimmed = (text ?? "").split(separator: "\n", omittingEmptySubsequences: true)
+            .prefix(6).joined(separator: " | ")
+        NSLog("CONTERM-DIAG layer: \(renderLayerReport)  \(surfaceView.renderPixelReport)")
+        NSLog("CONTERM-DIAG written=\(bytesWritten) grid=\(grid.columns)x\(grid.rows) "
+            + "viewport=\(text == nil ? "nil" : "\(text!.count)ch")")
+        NSLog("CONTERM-DIAG text: \(trimmed)")
     }
 
     func connect(credentials: SSHCredentials) {

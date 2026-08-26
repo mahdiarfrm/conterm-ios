@@ -1,0 +1,40 @@
+Enable mach-port async wakeups on every Darwin platform, not just macOS.
+
+libxev's Darwin `Async` is a mach port watched with `EVFILT_MACHPORT`. Two
+gates in the kqueue backend tested `os.tag == .macos` rather than
+`os.tag.isDarwin()`, so on iOS the kevent was never built:
+`Completion.kevent()` returned null and its one caller unwraps with `.?`,
+which in ReleaseFast is undefined rather than a panic.
+
+The effect is silent and total. `Async.notify()` still sends its mach
+message and still reports success — the port's queue limit is 1, so once
+the first undelivered message is sitting there every later send returns
+SEND_TIMED_OUT, which `notify` deliberately treats as "the port is full,
+it will wake up". Nothing ever reads it. Ghostty's renderer thread parks
+in `kevent64` at startup and never runs `updateFrame` again, so the
+terminal draws its background colour and not one cell, forever.
+
+This is fixed upstream in mitchellh/libxev@7bf2b2f ("fix(kqueue): support
+iOS mach_port operations"), which is newer than the revision ghostty pins.
+The change is that commit, applied to the pinned revision.
+
+--- a/src/backend/kqueue.zig
++++ b/src/backend/kqueue.zig
+@@ -954,7 +954,7 @@
+         // Add to our completion queue
+         c.task_loop.thread_pool_completions.push(c);
+ 
+-        if (comptime builtin.target.os.tag == .macos) {
++        if (comptime builtin.target.os.tag.isDarwin()) {
+             // Wake up our main loop
+             c.task_loop.wakeup() catch {};
+         }
+@@ -1070,7 +1070,7 @@
+                 .udata = @intFromPtr(self),
+             }),
+ 
+-            .machport => if (comptime builtin.os.tag != .macos) return null else kevent: {
++            .machport => if (comptime !builtin.os.tag.isDarwin()) return null else kevent: {
+                 // We can't use |*v| above because it crahses the Zig
+                 // compiler (as of 0.11.0-dev.1413). We can retry another time.
+                 const v = &self.op.machport;

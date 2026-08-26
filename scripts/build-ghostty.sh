@@ -47,11 +47,35 @@ for p in patches/ghostty/*.patch; do
     git -C "$WORK" apply "$PWD/$p"
 done
 
+# libxev is vendored rather than fetched, because the revision ghostty pins
+# cannot wake an event loop on iOS at all — see patches/libxev/. Everything
+# in ghostty that crosses a thread (the renderer waking to rebuild cells,
+# the io thread, the surface mailboxes) rides on xev.Async, so without this
+# the terminal renders its background colour and never a single cell.
+XEV_DIR="$WORK/vendor/libxev"
+if [[ ! -f "$XEV_DIR/.conterm-patched" ]]; then
+    echo "==> vendoring libxev ${GHOSTTY_KIT_XEV_COMMIT:0:7} + iOS mach-port fix"
+    rm -rf "$XEV_DIR"
+    mkdir -p "$XEV_DIR"
+    curl -fsSL --retry 3 "$GHOSTTY_KIT_XEV_URL" | tar xz -C "$XEV_DIR" --strip-components 1
+    for p in patches/libxev/*.patch; do
+        [[ -e "$p" ]] || continue
+        echo "==> applying ${p##*/}"
+        patch -p1 -s -d "$XEV_DIR" < "$p"
+    done
+    touch "$XEV_DIR/.conterm-patched"
+fi
+
 # zig: the pin builds with exactly ${GHOSTTY_KIT_ZIG}. Use the system zig
 # when it matches; otherwise fetch the pinned toolchain into the checkout,
 # which is gitignored and survives between runs.
 if ! command -v zig >/dev/null || [[ "$(zig version)" != "$GHOSTTY_KIT_ZIG" ]]; then
-    ARCH="$(uname -m)"; [[ "$ARCH" == "arm64" ]] && ARCH=aarch64
+    # `&&` here would be an errexit landmine on Intel, and ziglang.org names
+    # the Apple Silicon build `aarch64` where uname says `arm64`.
+    case "$(uname -m)" in
+        arm64|aarch64) ARCH=aarch64 ;;
+        *)             ARCH="$(uname -m)" ;;
+    esac
     ZIG_DIR="$WORK/.zig-${GHOSTTY_KIT_ZIG}-${ARCH}"
     if [[ ! -x "$ZIG_DIR/zig" ]]; then
         echo "==> fetching zig ${GHOSTTY_KIT_ZIG} (${ARCH}-macos)"
@@ -116,7 +140,12 @@ for slice in ios-arm64 ios-arm64-simulator macos-arm64_x86_64; do
         echo "ERROR: no static library in slice $slice" >&2
         exit 1
     fi
-    if ! nm -gU "$lib" 2>/dev/null | grep -q '_ghostty_surface_write_output'; then
+    # No pipe into grep here: `grep -q` exits on the first match and SIGPIPEs
+    # `nm`, which under `pipefail` makes a *successful* check look like a
+    # failed one — nondeterministically, since it depends on whether nm has
+    # finished writing 130MB of symbols first.
+    symbols="$(nm -gU "$lib" 2>/dev/null || true)"
+    if [[ "$symbols" != *_ghostty_surface_write_output* ]]; then
         echo "ERROR: $slice is missing _ghostty_surface_write_output —" >&2
         echo "ERROR: the external-termio patches did not make it into this build." >&2
         exit 1

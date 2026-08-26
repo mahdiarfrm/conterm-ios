@@ -1,0 +1,23 @@
+diff --git a/build.zig.zon b/build.zig.zon
+index 413c30a..b5d7bb8 100644
+--- a/build.zig.zon
++++ b/build.zig.zon
+@@ -7,11 +7,14 @@
+     .dependencies = .{
+         // Zig libs
+ 
++        // Vendored rather than fetched, because the pinned revision cannot
++        // wake an event loop on iOS: its kqueue backend gates the mach-port
++        // kevent on `os.tag == .macos`, so `xev.Async.notify` is a silent
++        // no-op there and ghostty's renderer thread never wakes. See
++        // patches/libxev/, which scripts/build-ghostty.sh unpacks and
++        // patches into vendor/libxev before this file is read.
+         .libxev = .{
+-            // mitchellh/libxev
+-            .url = "https://deps.files.ghostty.org/libxev-34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz",
+-            .hash = "libxev-0.0.0-86vtc4IcEwCqEYxEYoN_3KXmc6A9VLcm22aVImfvecYs",
+-            .lazy = true,
++            .path = "vendor/libxev",
+         },
+         .vaxis = .{
+             // rockorager/libvaxis

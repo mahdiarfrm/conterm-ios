@@ -184,7 +184,7 @@ final class SoundEffects {
             // silence; a discontinuity at the buffer edge clicks.
             let tail = max(0, min(1, (spec.duration - t) / 0.006))
 
-            let v = Float(tanh(sample * env * spec.gain * 2.5))
+            let v = Float(tanh(sample * env * tail * spec.gain * 2.5))
             left[i] = v
             right[i] = v
         }

@@ -9,6 +9,11 @@ GHOSTTY_KIT_VERSION="1.3.2-main-+24c5671"
 GHOSTTY_KIT_COMMIT="24c56716f0dfe55911f6f81ee76198a95423851e"
 GHOSTTY_KIT_ZIG="0.15.2"
 
+# libxev, as pinned by the ghostty commit above. We vendor and patch it
+# rather than letting zig fetch it — see patches/libxev/.
+GHOSTTY_KIT_XEV_COMMIT="34fa50878aec6e5fa8f532867001ab3c36fae23e"
+GHOSTTY_KIT_XEV_URL="https://deps.files.ghostty.org/libxev-${GHOSTTY_KIT_XEV_COMMIT}.tar.gz"
+
 # SwiftPM and Xcode both require a `lib` prefix on a static library inside
 # an xcframework; ghostty emits `ghostty-internal.a`.
 normalize_lib_prefix() {
@@ -38,5 +43,9 @@ kit_version() {
     local fw="$1" lib
     lib="$(find "$fw" -name '*.a' -print -quit)"
     [[ -n "$lib" ]] || return 0
-    strings "$lib" 2>/dev/null | grep -oE '1\.[0-9]+\.[0-9]+-main-\+[0-9a-f]+' | head -1
+    # `head -1` would SIGPIPE grep, which under the caller's `pipefail` turns
+    # a found version into a failed lookup. Take the first match in awk
+    # instead, which reads to the end.
+    strings "$lib" 2>/dev/null \
+        | awk 'match($0, /1\.[0-9]+\.[0-9]+-main-\+[0-9a-f]+/) { if (!seen) { seen = substr($0, RSTART, RLENGTH) } } END { print seen }' 
 }

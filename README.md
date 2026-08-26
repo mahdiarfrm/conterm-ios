@@ -22,6 +22,18 @@ bytes into a surface from outside.
 `patches/ghostty/` adds both: a `termio.External` backend whose bytes come
 from the embedder, and `ghostty_surface_write_output` to deliver them.
 
+`patches/libxev/` fixes a second, quieter blocker. libghostty wakes its
+renderer and IO threads with `xev.Async`, which on Darwin is a mach port
+watched by `EVFILT_MACHPORT` — and the revision ghostty pins gates that
+kevent on `os.tag == .macos`, so on iOS the wait is never armed. `notify()`
+still reports success (the port's queue limit is 1, so every send after the
+first undelivered one returns `SEND_TIMED_OUT`, which libxev treats as "it
+will wake up"), and the renderer thread parks in `kevent64` at startup and
+never rebuilds a cell again. The terminal draws its background colour and
+nothing else, forever, with no error anywhere. Upstream fixed this in
+libxev@7bf2b2f; the patch is that commit applied to the pinned revision, and
+`build-ghostty.sh` vendors libxev into the checkout so the fix survives.
+
 ```
 output   SSH bytes → ghostty_surface_write_output() → VT parse → Metal
 input    UIKey/UIKeyInput → ghostty_surface_key()/_text()

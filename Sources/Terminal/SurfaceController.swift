@@ -51,26 +51,12 @@ final class SurfaceController {
         config.termio_external = true
         config.termio_userdata = Unmanaged.passUnretained(self).toOpaque()
         config.userdata = Unmanaged.passUnretained(self).toOpaque()
-        config.termio_write_cb = { userdata, data, len in
-            guard let userdata, let data, len > 0 else { return }
-            // Copy before hopping: libghostty owns this buffer only for the
-            // duration of the call.
-            let bytes = Data(bytes: UnsafeRawPointer(data), count: len)
-            let controller = Unmanaged<SurfaceController>
-                .fromOpaque(userdata).takeUnretainedValue()
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { controller.onWrite?(bytes) }
-            }
-        }
-        config.termio_resize_cb = { userdata, columns, rows, _, _ in
-            guard let userdata else { return }
-            let controller = Unmanaged<SurfaceController>
-                .fromOpaque(userdata).takeUnretainedValue()
-            let cols = Int(columns), rws = Int(rows)
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { controller.reportResize(cols, rws) }
-            }
-        }
+        // File-scope functions, not closures: libghostty invokes both from
+        // its IO thread, and a closure written here would inherit this
+        // type's main-actor isolation and trap on the executor check the
+        // first time the far end says anything.
+        config.termio_write_cb = ghosttyTermioWrite
+        config.termio_resize_cb = ghosttyTermioResize
 
         guard let handle = ghostty_surface_new(app.handle, &config) else {
             Ghostty.log.error("ghostty_surface_new returned null")
@@ -106,6 +92,28 @@ final class SurfaceController {
         bytesWritten += data.count
         needsDraw = true
         Ghostty.log.info("wrote \(data.count)B total=\(self.bytesWritten)")
+    }
+
+    /// Read the visible viewport back out of the terminal.
+    ///
+    /// This is the only way to tell "the bytes never reached the emulator"
+    /// apart from "the emulator has them and the renderer isn't drawing" —
+    /// two failures that both present as a black rectangle.
+    var viewportText: String? {
+        guard let handle else { return nil }
+        var selection = ghostty_selection_s()
+        selection.top_left = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0)
+        selection.bottom_right = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0)
+        selection.rectangle = false
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(handle, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(handle, &text) }
+        guard let ptr = text.text else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: ptr, count: Int(text.text_len)),
+                      as: UTF8.self)
     }
 
     /// Send text as if typed. Goes out through `onWrite`.
@@ -157,7 +165,7 @@ final class SurfaceController {
         return (Int(size.columns), Int(size.rows))
     }
 
-    private func reportResize(_ columns: Int, _ rows: Int) {
+    fileprivate func reportResize(_ columns: Int, _ rows: Int) {
         guard columns > 0, rows > 0 else { return }
         guard (columns, rows) != lastReportedGrid else { return }
         lastReportedGrid = (columns, rows)
@@ -224,5 +232,39 @@ final class SurfaceController {
             // Handled by the session layer, which owns the UI these drive.
             break
         }
+    }
+}
+
+// MARK: - Termio callbacks
+//
+// The external backend's two outbound edges. Both arrive on libghostty's IO
+// thread with memory that is valid only for the duration of the call, so
+// each copies what it needs before hopping to the main actor.
+
+private nonisolated func ghosttyTermioWrite(
+    _ userdata: UnsafeMutableRawPointer?,
+    _ data: UnsafePointer<UInt8>?,
+    _ len: Int
+) {
+    guard let userdata, let data, len > 0 else { return }
+    let bytes = Data(bytes: UnsafeRawPointer(data), count: len)
+    let controller = Unmanaged<SurfaceController>.fromOpaque(userdata).takeUnretainedValue()
+    DispatchQueue.main.async {
+        MainActor.assumeIsolated { controller.onWrite?(bytes) }
+    }
+}
+
+private nonisolated func ghosttyTermioResize(
+    _ userdata: UnsafeMutableRawPointer?,
+    _ columns: UInt16,
+    _ rows: UInt16,
+    _ widthPX: UInt32,
+    _ heightPX: UInt32
+) {
+    guard let userdata else { return }
+    let controller = Unmanaged<SurfaceController>.fromOpaque(userdata).takeUnretainedValue()
+    let cols = Int(columns), rws = Int(rows)
+    DispatchQueue.main.async {
+        MainActor.assumeIsolated { controller.reportResize(cols, rws) }
     }
 }

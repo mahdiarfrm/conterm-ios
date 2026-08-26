@@ -23,7 +23,7 @@ struct TerminalScreen: View {
                 }
             }
 
-            diagnostics
+            if Self.showDiagnostics { diagnostics }
             KeyAccessoryBar(session: session)
         }
         .background(Theme.appBackground.ignoresSafeArea())
@@ -36,6 +36,12 @@ struct TerminalScreen: View {
 }
 
 extension TerminalScreen {
+    /// The strip is scaffolding, not product: it earned its keep finding the
+    /// libxev wakeup bug and it stays reachable for the next one, but a
+    /// working terminal shouldn't wear its instrumentation on screen.
+    fileprivate static let showDiagnostics =
+        ProcessInfo.processInfo.environment["CONTERM_DEMO"] != nil
+
     /// A single line of truth about the session. Cheap to read, and the
     /// difference between "the app is broken" and "the host is quiet".
     fileprivate var diagnostics: some View {

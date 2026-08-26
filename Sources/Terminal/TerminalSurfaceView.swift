@@ -1,3 +1,4 @@
+import IOSurface
 import UIKit
 import os
 
@@ -32,9 +33,63 @@ final class TerminalSurfaceView: UIView {
         let subs = layer.sublayers ?? []
         guard let first = subs.first else { return "no render layer" }
         let f = first.frame
-        return "\(subs.count) layer \(Int(f.width))x\(Int(f.height)) "
-             + "@\(String(format: "%.0f", first.contentsScale))x "
-             + (first.contents == nil ? "no contents" : "has contents")
+        var parts = [
+            "view \(Int(bounds.width))x\(Int(bounds.height))@\(Int(contentScaleFactor))",
+            "\(subs.count) sublayer(\(type(of: first)))",
+            "frame \(Int(f.origin.x)),\(Int(f.origin.y)) \(Int(f.width))x\(Int(f.height))",
+            "scale \(String(format: "%.1f", first.contentsScale))",
+            "opacity \(String(format: "%.2f", first.opacity))",
+            first.isHidden ? "HIDDEN" : "visible",
+        ]
+        if let contents = first.contents {
+            // The renderer hands the layer an IOSurface. Its pixel size has
+            // to equal bounds x contentsScale or IOSurfaceLayer discards it.
+            let surface = unsafeDowncast(contents as AnyObject, to: IOSurfaceRef.self)
+            parts.append("contents \(IOSurfaceGetWidth(surface))x\(IOSurfaceGetHeight(surface))")
+            parts.append("want \(Int(f.width * first.contentsScale))x\(Int(f.height * first.contentsScale))")
+        } else {
+            parts.append("NO CONTENTS")
+        }
+        return parts.joined(separator: "  ")
+    }
+
+    /// A pixel sample of the frame the renderer last produced. Expensive:
+    /// locks the IOSurface and walks it. Diagnostics only, never in a view
+    /// body.
+    var renderPixelReport: String {
+        guard let contents = layer.sublayers?.first?.contents else { return "no contents" }
+        return Self.pixelReport(unsafeDowncast(contents as AnyObject, to: IOSurfaceRef.self))
+    }
+
+    /// Sample the pixels the renderer actually produced.
+    ///
+    /// A terminal that draws its background and no glyphs is indistinguishable
+    /// on screen from a layer that never composites — but not in the buffer.
+    /// One distinct colour means the renderer cleared and drew nothing.
+    private static func pixelReport(_ surface: IOSurfaceRef) -> String {
+        guard IOSurfaceLock(surface, .readOnly, nil) == 0 else {
+            return "pixels locked"
+        }
+        defer { IOSurfaceUnlock(surface, .readOnly, nil) }
+        guard let base = IOSurfaceGetBaseAddress(surface) as UnsafeMutableRawPointer? else {
+            return "pixels no base"
+        }
+        let stride = IOSurfaceGetBytesPerRow(surface)
+        let width = IOSurfaceGetWidth(surface)
+        let height = IOSurfaceGetHeight(surface)
+        var seen = Set<UInt32>()
+        var first: UInt32 = 0
+        var sampled = 0
+        for y in Swift.stride(from: 0, to: height, by: 3) {
+            let row = base.advanced(by: y * stride)
+            for x in Swift.stride(from: 0, to: width, by: 3) {
+                let px = row.load(fromByteOffset: x * 4, as: UInt32.self)
+                if sampled == 0 { first = px }
+                sampled += 1
+                if seen.count < 12 { seen.insert(px) }
+            }
+        }
+        return "px first=\(String(format: "%08x", first)) distinct>=\(seen.count) of \(sampled)"
     }
 
     /// Modifier keys latched by the accessory bar. A phone keyboard has no
@@ -48,7 +103,25 @@ final class TerminalSurfaceView: UIView {
     // thread, which is where both UIKit and deinit for a view actually run.
     private nonisolated(unsafe) var displayLink: CADisplayLink?
 
-    init(app: Ghostty.App, fontSize: Float = 14) {
+    /// Points of cell width per point of font size, for the bundled
+    /// JetBrains Mono at the scale libghostty uses on iOS. Measured, not
+    /// derived: at font size 14 a 402pt-wide surface came out 34 columns.
+    private static let cellWidthRatio: CGFloat = 402.0 / 34.0 / 14.0
+
+    /// Font size that gives a phone a usable number of columns.
+    ///
+    /// A terminal is unusable below about 50 columns — `ls -l`, a git log
+    /// line and every prompt wrap mid-word — and a fixed point size can't
+    /// promise that across a 5.4" phone and a 13" iPad. So the size is
+    /// derived from the width instead, and clamped to what stays legible.
+    static func defaultFontSize(forWidth width: CGFloat) -> Float {
+        guard width > 0 else { return 11 }
+        let target: CGFloat = 52
+        let size = width / (target * cellWidthRatio)
+        return Float(min(max(size, 8), 15))
+    }
+
+    init(app: Ghostty.App, fontSize: Float? = nil) {
         // Non-zero on purpose — see invariant 1. The real size arrives at the
         // first layout pass, a moment later.
         super.init(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
@@ -58,7 +131,12 @@ final class TerminalSurfaceView: UIView {
         clipsToBounds = true
         contentScaleFactor = UIScreen.main.scale
 
-        controller = SurfaceController(view: self, app: app, fontSize: fontSize)
+        // The real width isn't known until layout, but the surface's font is
+        // fixed at creation — so size against the screen, which is the width
+        // the view will have.
+        let width = UIScreen.main.bounds.width
+        controller = SurfaceController(view: self, app: app,
+                                       fontSize: fontSize ?? Self.defaultFontSize(forWidth: width))
     }
 
     @available(*, unavailable)

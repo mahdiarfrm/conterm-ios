@@ -24,7 +24,7 @@ final class TerminalSession: Identifiable, Hashable {
         case closed(String?)
     }
 
-    let host: SSHConfigHost
+    let host: Host
     let surfaceView: TerminalSurfaceView
 
     private(set) var state: State = .connecting
@@ -33,7 +33,7 @@ final class TerminalSession: Identifiable, Hashable {
     private let transport = Libssh2Transport()
     private let log = Logger(subsystem: "dev.conterm.ios", category: "session")
 
-    init(host: SSHConfigHost, app: Ghostty.App) {
+    init(host: Host, app: Ghostty.App) {
         self.host = host
         self.surfaceView = TerminalSurfaceView(app: app)
 

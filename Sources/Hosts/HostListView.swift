@@ -1,113 +1,168 @@
 import SwiftUI
 
-/// The app's home screen: your hosts, grouped.
-///
-/// Conterm on macOS has no host database at all — it derives a list from
-/// `~/.ssh/config` and scraped shell history, because `/usr/bin/ssh` did the
-/// rest. Neither exists here, so this list is backed by real records. Until
-/// the store lands, it shows whatever config the user has imported.
+/// The app's home screen: your hosts.
 struct HostListView: View {
     let app: Ghostty.App
 
-    @State private var hosts: [SSHConfigHost] = []
+    @State private var store = HostStore()
     @State private var query = ""
     @State private var session: TerminalSession?
+    @State private var editing: Host?
+    @State private var creating = false
     @State private var importing = false
+    @State private var quickConnecting = false
+    @State private var notice: String?
 
-    private var filtered: [SSHConfigHost] {
-        guard !query.isEmpty else { return hosts }
+    private var filtered: [Host] {
+        let base = store.hosts.sorted {
+            // Most recently used first, then alphabetical — the same
+            // frecency instinct as Conterm's palette, minus the decay.
+            switch ($0.lastConnectedAt, $1.lastConnectedAt) {
+            case let (a?, b?): return a > b
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return $0.alias.lowercased() < $1.alias.lowercased()
+            }
+        }
+        guard !query.isEmpty else { return base }
         let q = query.lowercased()
-        return hosts.filter {
-            $0.alias.lowercased().contains(q)
-                || ($0.hostname?.lowercased().contains(q) ?? false)
+        return base.filter {
+            $0.alias.lowercased().contains(q) || $0.hostname.lowercased().contains(q)
         }
     }
 
     var body: some View {
         NavigationStack {
             Group {
-                if hosts.isEmpty {
-                    EmptyHostsView(importing: $importing)
+                if store.hosts.isEmpty {
+                    EmptyHostsView(creating: $creating,
+                                   importing: $importing,
+                                   quickConnecting: $quickConnecting)
                 } else {
                     list
                 }
             }
             .background(Theme.backdropDark.ignoresSafeArea())
             .navigationTitle("Hosts")
-            .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button { importing = true } label: {
                         Image(systemName: "square.and.arrow.down")
                     }
-                    .tint(Theme.accentOnDark)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button { quickConnecting = true } label: {
+                            Label("Quick Connect", systemImage: "bolt.horizontal.fill")
+                        }
+                        Button { creating = true } label: {
+                            Label("New Host", systemImage: "plus")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
                 }
             }
             .searchable(text: $query, prompt: "Search hosts")
+            .sheet(isPresented: $creating) { HostEditorView(store: store) }
+            .sheet(isPresented: $quickConnecting) {
+                QuickConnectView(app: app, store: store) { session = $0 }
+            }
+            .sheet(item: $editing) { host in
+                HostEditorView(store: store, existing: host)
+            }
             .fileImporter(isPresented: $importing,
                           allowedContentTypes: [.item],
-                          allowsMultipleSelection: false) { result in
-                importConfig(result)
-            }
-            .navigationDestination(item: $session) { session in
-                TerminalScreen(session: session)
+                          allowsMultipleSelection: false) { importConfig($0) }
+            .navigationDestination(item: $session) { TerminalScreen(session: $0) }
+            .alert("Import", isPresented: .constant(notice != nil)) {
+                Button("OK") { notice = nil }
+            } message: {
+                Text(notice ?? "")
             }
         }
         .tint(Theme.accentOnDark)
     }
 
     private var list: some View {
-        List(filtered) { host in
-            Button {
-                open(host)
-            } label: {
-                HostRow(host: host)
+        List {
+            ForEach(filtered) { host in
+                Button { open(host) } label: { HostRow(host: host) }
+                    .listRowBackground(Color.clear)
+                    .swipeActions(edge: .trailing) {
+                        Button("Delete", role: .destructive) { store.delete(host) }
+                        Button("Edit") { editing = host }.tint(Theme.Status.working)
+                    }
             }
-            .listRowBackground(Color.clear)
-            .listRowSeparatorTint(Theme.stroke)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
     }
 
-    private func open(_ host: SSHConfigHost) {
-        session = TerminalSession(host: host, app: app)
+    private func open(_ host: Host) {
+        guard let credentials = KeyStore.shared.credentials(for: host) else {
+            // No secret stored — send them to the editor rather than opening a
+            // terminal that can only fail.
+            editing = host
+            return
+        }
+        let s = TerminalSession(host: host, app: app)
+        s.connect(credentials: credentials)
+        store.noteConnected(host)
+        session = s
     }
 
     private func importConfig(_ result: Result<[URL], Error>) {
         guard case .success(let urls) = result, let url = urls.first else { return }
-        // A file chosen through the picker lives outside our container, so
-        // access has to be claimed and released explicitly.
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        hosts = SSHConfig.parse(fileAt: url).hosts
+
+        let parsed = SSHConfig.parse(fileAt: url)
+        let added = store.merge(parsed.hosts, defaultUsername: "root")
+
+        var message = "Imported \(added) host\(added == 1 ? "" : "s")."
+        if added < parsed.hosts.count {
+            message += " \(parsed.hosts.count - added) already existed."
+        }
+        if !parsed.unresolvedIncludes.isEmpty {
+            // Never lose half a fleet quietly.
+            message += " \(parsed.unresolvedIncludes.count) Include(s) couldn't be followed."
+        }
+        message += " Each host still needs a password or key before it can connect."
+        notice = message
     }
 }
 
-/// One host. A status gem, the alias, and enough underneath to tell two
-/// similar aliases apart — which is the whole job of this row.
 private struct HostRow: View {
-    let host: SSHConfigHost
+    let host: Host
 
     var body: some View {
         HStack(spacing: 11) {
             Circle()
-                .fill(Theme.Status.neutral)
+                .fill(hasSecret ? Theme.Status.ready : Theme.Status.neutral)
                 .frame(width: 6, height: 6)
-                .shadow(color: Theme.Status.neutral.opacity(0.6), radius: 3)
+                .shadow(color: (hasSecret ? Theme.Status.ready : Theme.Status.neutral)
+                    .opacity(0.6), radius: 3)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(host.alias)
                     .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.textPrimary)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
-                        .foregroundStyle(Theme.textSecondary)
-                }
+                Text(host.displaySubtitle)
+                    .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
+                    .foregroundStyle(Theme.textSecondary)
             }
 
             Spacer(minLength: 8)
+
+            if !hasSecret {
+                Text("no key")
+                    .font(.system(size: Theme.ui(10), weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.warning)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .glassPill(tone: .dark)
+            }
 
             Image(systemName: "chevron.right")
                 .font(.system(size: Theme.ui(11), weight: .semibold))
@@ -117,45 +172,52 @@ private struct HostRow: View {
         .contentShape(Rectangle())
     }
 
-    /// `user@host:port`, with the parts that are already the default left out
-    /// — a list where every row says ":22" has spent its width on nothing.
-    private var subtitle: String? {
-        var parts: [String] = []
-        if let user = host.user { parts.append(user + "@") }
-        if let hostname = host.hostname, hostname != host.alias {
-            parts.append(hostname)
-        } else if host.user != nil {
-            parts.append(host.alias)
-        }
-        if let port = host.port, port != 22 { parts.append(":\(port)") }
-        let joined = parts.joined()
-        return joined.isEmpty ? nil : joined
-    }
+    private var hasSecret: Bool { KeyStore.shared.hasSecret(for: host) }
 }
 
 private struct EmptyHostsView: View {
+    @Binding var creating: Bool
     @Binding var importing: Bool
+    @Binding var quickConnecting: Bool
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             Image(systemName: "externaldrive.connected.to.line.below")
                 .font(.system(size: 30, weight: .light))
                 .foregroundStyle(Theme.textSecondary)
             Text("No hosts yet")
                 .font(.system(size: 17, weight: .semibold, design: .rounded))
                 .foregroundStyle(Theme.textPrimary)
-            Text("Import an ssh config to get started. Includes are followed, and Port, User, IdentityFile and ProxyJump all come across.")
+            Text("Connect straight away with user@host, or save hosts you use often.")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 28)
-            Button("Import ssh config") { importing = true }
-                .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
-                .foregroundStyle(Theme.accentOnDark)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 32)
+
+            Button("Quick Connect") { quickConnecting = true }
+                .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
+                .foregroundStyle(Theme.paneTile)
+                .padding(.horizontal, 22)
                 .frame(height: Theme.hitTarget)
-                .glassPill(tone: .dark)
+                .background(Capsule().fill(Theme.accentOnDark))
                 .padding(.top, 4)
+
+            HStack(spacing: 10) {
+                Button("Add host") { creating = true }
+                    .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.accentOnDark)
+                    .padding(.horizontal, 18)
+                    .frame(height: Theme.hitTarget)
+                    .glassPill(tone: .dark)
+
+                Button("Import config") { importing = true }
+                    .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.accentOnDark)
+                    .padding(.horizontal, 18)
+                    .frame(height: Theme.hitTarget)
+                    .glassPill(tone: .dark)
+            }
+            .padding(.top, 4)
         }
     }
 }

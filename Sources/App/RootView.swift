@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(GhosttyRuntime.self) private var ghostty
+    @State private var launching = true
 
     var body: some View {
         ZStack {
@@ -14,7 +15,14 @@ struct RootView: View {
             } else {
                 ProgressView().tint(Theme.accentOnDark)
             }
+
+            if launching {
+                LaunchOverlay { launching = false }
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
         }
+        .animation(Theme.crossfade, value: launching)
     }
 }
 

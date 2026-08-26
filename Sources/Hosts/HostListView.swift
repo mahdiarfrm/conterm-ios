@@ -13,6 +13,7 @@ struct HostListView: View {
     @State private var importing = false
     @State private var quickConnecting = false
     @State private var notice: String?
+    @State private var paletteOpen = false
 
     private var filtered: [Host] {
         let base = store.hosts.sorted {
@@ -70,7 +71,15 @@ struct HostListView: View {
                     }
                 }
             }
-            .searchable(text: $query, prompt: "Search hosts")
+            .safeAreaInset(edge: .bottom) { paletteBar }
+            .sheet(isPresented: $paletteOpen) {
+                CommandPalette(store: store,
+                               onConnect: { open($0) },
+                               onOverview: { overview = $0 },
+                               onNewHost: { creating = true },
+                               onQuickConnect: { quickConnecting = true },
+                               onImport: { importing = true })
+            }
             .sheet(isPresented: $creating) { HostEditorView(store: store) }
             .sheet(isPresented: $quickConnecting) {
                 QuickConnectView(app: app, store: store) { session = $0 }
@@ -90,6 +99,28 @@ struct HostListView: View {
             }
         }
         .tint(Theme.accentOnDark)
+    }
+
+    private var paletteBar: some View {
+        Button {
+            paletteOpen = true
+            Haptics.shared.fire(.light)
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: Theme.ui(14), weight: .medium))
+                Text("Search hosts, actions, or a sum")
+                    .font(.system(size: Theme.ui(14), weight: .medium, design: .rounded))
+                Spacer()
+            }
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 16)
+            .frame(height: Theme.ui(46))
+            .glassPill(tone: .dark)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+        }
+        .buttonStyle(.plain)
     }
 
     private var list: some View {
@@ -125,9 +156,12 @@ struct HostListView: View {
         guard let credentials = KeyStore.shared.credentials(for: host) else {
             // No secret stored — send them to the editor rather than opening a
             // terminal that can only fail.
+            SoundEffects.shared.play(.error)
+            Haptics.shared.fire(.warning)
             editing = host
             return
         }
+        SoundEffects.shared.tap(.connect, haptic: .medium)
         let s = TerminalSession(host: host, app: app)
         s.connect(credentials: credentials)
         store.noteConnected(host)

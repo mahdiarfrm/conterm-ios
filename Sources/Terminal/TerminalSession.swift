@@ -66,7 +66,10 @@ final class TerminalSession: Identifiable, Hashable {
                 Task { @MainActor in controller?.write(data) }
             }
             await transport.setOnClosed { reason in
-                Task { @MainActor in self?.state = .closed(reason) }
+                Task { @MainActor in
+                    self?.state = .closed(reason)
+                    SoundEffects.shared.play(.disconnect)
+                }
             }
 
             do {
@@ -77,9 +80,17 @@ final class TerminalSession: Identifiable, Hashable {
                 let grid: (columns: Int, rows: Int) =
                     await MainActor.run { controller?.gridSize ?? (columns: 80, rows: 24) }
                 try await transport.openShell(columns: grid.columns, rows: grid.rows)
-                await MainActor.run { self?.state = .connected }
+                await MainActor.run {
+                    self?.state = .connected
+                    SoundEffects.shared.play(.notify)
+                    Haptics.shared.fire(.success)
+                }
             } catch {
-                await MainActor.run { self?.state = .failed(error.localizedDescription) }
+                await MainActor.run {
+                    self?.state = .failed(error.localizedDescription)
+                    SoundEffects.shared.play(.error)
+                    Haptics.shared.fire(.failure)
+                }
             }
         }
     }

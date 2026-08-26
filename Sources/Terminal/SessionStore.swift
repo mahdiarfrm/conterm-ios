@@ -17,8 +17,15 @@ import Observation
 final class SessionStore {
     static let shared = SessionStore()
 
-    /// Live sessions, most recently opened first.
+    /// Every session this launch still holds, most recently opened first.
+    /// Includes ones that have died — their terminal may still be on screen,
+    /// and the reason they died is worth reading.
     private(set) var sessions: [TerminalSession] = []
+
+    /// The ones with a shell actually on the other end.
+    var live: [TerminalSession] {
+        sessions.filter { $0.state == .connecting || $0.state == .connected }
+    }
 
     private init() {}
 
@@ -68,6 +75,19 @@ final class SessionStore {
     func closeAll() {
         for session in sessions { session.disconnect() }
         sessions.removeAll()
+    }
+
+    /// Forget sessions that have died and are no longer on screen.
+    ///
+    /// A dead session is kept while its terminal is open so the failure text
+    /// stays readable; once you have left that screen it is just a husk.
+    func pruneDead() {
+        sessions.removeAll {
+            switch $0.state {
+            case .failed, .closed: return true
+            case .connecting, .connected: return false
+            }
+        }
     }
 
     private func remove(_ session: TerminalSession) {

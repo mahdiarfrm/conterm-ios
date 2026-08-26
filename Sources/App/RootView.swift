@@ -2,7 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(GhosttyRuntime.self) private var ghostty
-    @State private var launching = true
+    @State private var launching = Preferences.shared.launchAnimation
 
     var body: some View {
         ZStack {
@@ -34,6 +34,11 @@ struct RootView: View {
             }
         }
         .animation(Theme.crossfade, value: launching)
+        // The overlay normally starts the engine, one runloop in, so it is
+        // actually on screen first. With the animation turned off there is
+        // no overlay to do it — `start()` is idempotent, so both paths can
+        // call it.
+        .task { if !launching { ghostty.start() } }
     }
 }
 

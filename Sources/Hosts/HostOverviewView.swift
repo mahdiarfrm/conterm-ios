@@ -9,6 +9,9 @@ import SwiftUI
 /// with an empty systemd section.
 struct HostOverviewView: View {
     let host: Host
+    /// Handed in by whoever pushed this screen, so the briefing can lead into
+    /// a terminal without owning session creation itself.
+    var onOpenShell: ((Host) -> Void)?
 
     @State private var probe: HostProbeModel?
     @State private var failure: String?
@@ -39,13 +42,48 @@ struct HostOverviewView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { probe?.refresh() } label: {
+                Button { refresh() } label: {
                     Image(systemName: "arrow.clockwise")
                 }
                 .disabled(probe == nil)
             }
         }
+        // A briefing that finds a problem has to lead somewhere. Without
+        // this you read "3 failed units", go back, find the host, and tap it
+        // again — three steps to act on what the screen just told you.
+        .safeAreaInset(edge: .bottom) { openShellBar }
+        .refreshable { refresh() }
         .task { start() }
+    }
+
+    private func refresh() {
+        Haptics.shared.fire(.light)
+        probe?.refresh()
+    }
+
+    private var openShellBar: some View {
+        Button {
+            SoundEffects.shared.tap(.connect, haptic: .medium)
+            onOpenShell?(host)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "apple.terminal")
+                    .font(.system(size: Theme.ui(14), weight: .semibold))
+                Text(SessionStore.shared.liveSession(for: host) == nil
+                     ? "Open a shell" : "Back to the shell")
+                    .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(Theme.accentOnDark)
+            .frame(maxWidth: .infinity)
+            .frame(height: Theme.ui(48))
+            .floatingGlass()
+            .shadow(color: .black.opacity(0.45), radius: 18, y: 7)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
+        }
+        .buttonStyle(PressablePill())
+        .opacity(onOpenShell == nil ? 0 : 1)
+        .disabled(onOpenShell == nil)
     }
 
     private func start() {
@@ -62,22 +100,58 @@ struct HostOverviewView: View {
 
     private var header: some View {
         let health = currentHealth
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 9) {
                 HealthGem(health: health)
                 Text(headline)
-                    .font(.system(size: 21, weight: .bold, design: .rounded))
+                    .font(.system(size: Theme.ui(21), weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.textPrimary)
-                Spacer()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Spacer(minLength: 6)
                 if probe?.refreshing == true {
-                    ProgressView().controlSize(.small)
+                    ProgressView().controlSize(.small).tint(Theme.sshAccent)
                 }
             }
+
             Text(subheadline)
-                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
                 .foregroundStyle(Theme.textSecondary)
+                .lineLimit(2)
+
+            // Alerts as chips, not as a `·`-joined run-on. The whole point of
+            // this screen is that a problem should be countable at a glance,
+            // and a sentence is not countable.
+            if !alerts.isEmpty {
+                FlowChips(alerts.map { ($0.1, $0.0.color) })
+                    .padding(.top, 2)
+            }
+
+            if let stamp = ageStamp {
+                Text(stamp)
+                    .font(.system(size: Theme.ui(10), weight: .medium, design: .rounded))
+                    .foregroundStyle(Theme.textSecondary.opacity(0.75))
+                    .monospacedDigit()
+            }
         }
         .padding(.bottom, 14)
+    }
+
+    private var alerts: [(HostHealth, String)] {
+        guard let probe, case .loaded(let info) = probe.phase else { return [] }
+        return HostHealth.alerts(info)
+    }
+
+    /// How old the numbers on screen are. A cached snapshot renders instantly
+    /// while a fresh probe runs behind it, which is only honest if the screen
+    /// says so.
+    private var ageStamp: String? {
+        guard let at = probe?.fetchedAt else { return nil }
+        let seconds = Int(Date().timeIntervalSince(at))
+        if probe?.refreshing == true { return "refreshing\u{2026}" }
+        if seconds < 5 { return "just now" }
+        if seconds < 90 { return "checked \(seconds)s ago" }
+        return "checked \(seconds / 60)m ago"
     }
 
     private var currentHealth: HostHealth {
@@ -96,11 +170,8 @@ struct HostOverviewView: View {
         guard let probe, case .loaded(let info) = probe.phase else {
             return host.displaySubtitle
         }
-        let alerts = HostHealth.alerts(info)
-        if alerts.isEmpty {
-            return [info.os, info.kernel].compactMap { $0 }.joined(separator: " · ")
-        }
-        return alerts.map(\.1).joined(separator: " · ")
+        let facts = [info.os, info.kernel].compactMap { $0 }
+        return facts.isEmpty ? host.displaySubtitle : facts.joined(separator: " · ")
     }
 
     // MARK: - Bands
@@ -148,11 +219,11 @@ struct HostOverviewView: View {
                             .fill(c.running ? Theme.Status.ready : Theme.textSecondary.opacity(0.5))
                             .frame(width: 5, height: 5)
                         Text(c.name)
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
                             .foregroundStyle(Theme.textPrimary)
                         Spacer(minLength: 8)
                         Text(c.status)
-                            .font(.system(size: 11, design: .rounded))
+                            .font(.system(size: Theme.ui(11), design: .rounded))
                             .foregroundStyle(Theme.textSecondary)
                             .lineLimit(1)
                     }
@@ -193,11 +264,11 @@ struct HostOverviewView: View {
                 ForEach(info.topProcs.prefix(5), id: \.name) { p in
                     HStack {
                         Text(p.name)
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .font(.system(size: Theme.ui(12), weight: .medium, design: .monospaced))
                             .foregroundStyle(Theme.textPrimary)
                         Spacer()
                         Text("\(p.cpu)%  ·  \(p.mem)%")
-                            .font(.system(size: 11, design: .rounded))
+                            .font(.system(size: Theme.ui(11), design: .rounded))
                             .foregroundStyle(Theme.textSecondary)
                             .monospacedDigit()
                     }
@@ -211,7 +282,7 @@ struct HostOverviewView: View {
                 ForEach(Array((info.journalErrors + info.kernelWarnings).prefix(8).enumerated()),
                         id: \.offset) { _, line in
                     Text(line)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(.system(size: Theme.ui(10.5), design: .monospaced))
                         .foregroundStyle(Theme.textSecondary)
                         .lineLimit(2)
                         .padding(.vertical, 1)
@@ -226,7 +297,7 @@ struct HostOverviewView: View {
         HStack(spacing: 10) {
             ProgressView().tint(Theme.sshAccent)
             Text("Asking \(host.hostname)…")
-                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .font(.system(size: Theme.ui(13), weight: .medium, design: .rounded))
                 .foregroundStyle(Theme.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -235,7 +306,7 @@ struct HostOverviewView: View {
 
     private func errorMessage(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
             .foregroundStyle(Theme.Status.danger)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 24)
@@ -268,7 +339,7 @@ private struct Band<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title.uppercased())
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .font(.system(size: Theme.ui(10), weight: .semibold, design: .rounded))
                 .tracking(0.6)
                 .foregroundStyle(Theme.textSecondary.opacity(0.8))
             Rectangle()
@@ -325,14 +396,14 @@ private struct Row: View {
         HStack(alignment: .top, spacing: 12) {
             if !label.isEmpty {
                 Text(label)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
                     .frame(width: 96, alignment: .leading)
             } else {
                 Spacer().frame(width: 96)
             }
             Text(value)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
                 .foregroundStyle(tint ?? Theme.textPrimary)
                 .monospacedDigit()
             Spacer(minLength: 0)
@@ -358,11 +429,11 @@ private struct Meter: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text(label)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textPrimary)
                 Spacer()
                 Text(detail)
-                    .font(.system(size: 11, design: .rounded))
+                    .font(.system(size: Theme.ui(11), design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
                     .monospacedDigit()
             }
@@ -378,5 +449,68 @@ private struct Meter: View {
             .frame(height: 4)
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// Alert chips that wrap. There is no `FlowLayout` in SwiftUI, and a
+/// horizontal scroll view for two or three short words reads as broken — so
+/// this is a real `Layout`, which is about twenty lines and behaves.
+private struct FlowChips: View {
+    let items: [(String, Color)]
+
+    init(_ items: [(String, Color)]) { self.items = items }
+
+    var body: some View {
+        FlowLayout(spacing: 6) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                Text(item.0)
+                    .font(.system(size: Theme.ui(10.5), weight: .semibold, design: .rounded))
+                    .foregroundStyle(item.1)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background {
+                        Capsule(style: .continuous).fill(item.1.opacity(0.13))
+                    }
+                    .overlay {
+                        Capsule(style: .continuous).stroke(item.1.opacity(0.35), lineWidth: 0.5)
+                    }
+            }
+        }
+    }
+}
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: proposal.width ?? x, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+                       subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }

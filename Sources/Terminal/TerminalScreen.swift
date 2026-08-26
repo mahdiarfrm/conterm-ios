@@ -46,7 +46,11 @@ struct TerminalScreen: View {
         // Deliberately no `onDisappear { disconnect() }`. Leaving the screen
         // is navigation, not hanging up: the shell keeps running and this
         // host reopens straight back into it. Only the menu above ends one.
-        .onAppear { session.surfaceView.focusKeyboard() }
+        .onAppear {
+            session.surfaceView.focusKeyboard()
+            IdleTimer.terminalAppeared()
+        }
+        .onDisappear { IdleTimer.terminalDisappeared() }
     }
 }
 

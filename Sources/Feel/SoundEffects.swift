@@ -317,7 +317,13 @@ final class Haptics {
         notification.prepare()
     }
 
+    private static let prefKey = "conterm.haptics"
+    static var isEnabled: Bool {
+        UserDefaults.standard.object(forKey: prefKey) as? Bool ?? true
+    }
+
     func fire(_ kind: Kind) {
+        guard Self.isEnabled else { return }
         switch kind {
         case .light: UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .medium: UIImpactFeedbackGenerator(style: .medium).impactOccurred()

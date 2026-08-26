@@ -5,6 +5,7 @@ struct HostListView: View {
     let app: Ghostty.App
 
     @State private var store = HostStore()
+    private var sessions: SessionStore { SessionStore.shared }
     @State private var query = ""
     @State private var session: TerminalSession?
     @State private var overview: Host?
@@ -15,6 +16,7 @@ struct HostListView: View {
     @State private var notice: String?
     @State private var paletteOpen = false
     @State private var keysOpen = false
+    @State private var settingsOpen = false
 
     private var filtered: [Host] {
         let base = store.hosts.sorted {
@@ -39,7 +41,10 @@ struct HostListView: View {
             VStack(spacing: 0) {
                 brandHeader
                 Group {
-                if store.hosts.isEmpty {
+                // A live session keeps the list on screen even with nothing
+                // saved — Quick Connect shouldn't strand you on an empty state
+                // while a shell of yours is running behind it.
+                if store.hosts.isEmpty && sessions.live.isEmpty {
                     EmptyHostsView(creating: $creating,
                                    importing: $importing,
                                    quickConnecting: $quickConnecting,
@@ -65,6 +70,7 @@ struct HostListView: View {
                                onKeys: { keysOpen = true })
             }
             .sheet(isPresented: $keysOpen) { KeyLibraryView() }
+            .sheet(isPresented: $settingsOpen) { SettingsView() }
             .sheet(isPresented: $creating) { HostEditorView(store: store) }
             .sheet(isPresented: $quickConnecting) {
                 QuickConnectView(app: app, store: store) {
@@ -79,7 +85,12 @@ struct HostListView: View {
                           allowedContentTypes: [.item],
                           allowsMultipleSelection: false) { importConfig($0) }
             .navigationDestination(item: $session) { TerminalScreen(session: $0) }
-            .navigationDestination(item: $overview) { HostOverviewView(host: $0) }
+            .navigationDestination(item: $overview) { host in
+                HostOverviewView(host: host) { target in
+                    overview = nil
+                    open(target)
+                }
+            }
             .alert("Import", isPresented: .constant(notice != nil)) {
                 Button("OK") { notice = nil }
             } message: {
@@ -87,6 +98,9 @@ struct HostListView: View {
             }
         }
         .tint(Theme.accentOnDark)
+        // Sessions that died keep their terminal readable while it is open;
+        // once you are back here they are just clutter.
+        .onAppear { sessions.pruneDead() }
     }
 
     private var brandHeader: some View {
@@ -103,7 +117,7 @@ struct HostListView: View {
             }
             Spacer(minLength: 8)
             headerButton("key") { keysOpen = true }
-            headerButton("square.and.arrow.down") { importing = true }
+            headerButton("gearshape") { settingsOpen = true }
             headerButton("plus") { creating = true }
         }
         .padding(.horizontal, 20)
@@ -151,33 +165,78 @@ struct HostListView: View {
 
     private var list: some View {
         List {
-            ForEach(Array(filtered.enumerated()), id: \.element.id) { index, host in
-                HStack(spacing: 0) {
-                    Button { open(host) } label: { HostRow(host: host) }
-                        .buttonStyle(PressableRow())
-                    // The briefing is a peer of connecting, not buried in a
-                    // menu — "how is that box?" is the question you open the
-                    // app for as often as "give me a shell".
-                    Button { overview = host } label: {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: Theme.ui(15), weight: .medium))
-                            .foregroundStyle(Theme.textSecondary)
-                            .frame(width: Theme.hitTarget, height: Theme.hitTarget)
-                            .contentShape(Rectangle())
+            // Live shells come first, always. They are the things with state
+            // in them — a running job, a half-typed command — and burying
+            // them under a host list you have to remember to scroll is how
+            // you end up opening a second connection by accident.
+            if !sessions.live.isEmpty {
+                Section {
+                    ForEach(sessions.live) { live in
+                        Button { session = live } label: { SessionRow(session: live) }
+                            .buttonStyle(PressableRow())
+                            .listRowBackground(Color.clear)
+                            .listRowSeparatorTint(Theme.stroke)
+                            .swipeActions(edge: .trailing) {
+                                Button("Disconnect", role: .destructive) {
+                                    sessions.close(live)
+                                    SoundEffects.shared.play(.disconnect)
+                                }
+                            }
                     }
-                    .buttonStyle(.plain)
+                } header: {
+                    sectionHeader("Live sessions", count: sessions.live.count)
                 }
-                .listRowBackground(Color.clear)
-                .listRowSeparatorTint(Theme.stroke)
-                .revealCascade(index)
-                .swipeActions(edge: .trailing) {
-                    Button("Delete", role: .destructive) { store.delete(host) }
-                    Button("Edit") { editing = host }.tint(Theme.Status.working)
+            }
+
+            Section {
+                ForEach(Array(filtered.enumerated()), id: \.element.id) { index, host in
+                    HStack(spacing: 0) {
+                        Button { open(host) } label: { HostRow(host: host) }
+                            .buttonStyle(PressableRow())
+                        // The briefing is a peer of connecting, not buried in
+                        // a menu — "how is that box?" is the question you open
+                        // the app for as often as "give me a shell".
+                        Button { overview = host } label: {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: Theme.ui(15), weight: .medium))
+                                .foregroundStyle(Theme.textSecondary)
+                                .frame(width: Theme.hitTarget, height: Theme.hitTarget)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparatorTint(Theme.stroke)
+                    .revealCascade(index)
+                    .swipeActions(edge: .trailing) {
+                        Button("Delete", role: .destructive) { store.delete(host) }
+                        Button("Edit") { editing = host }.tint(Theme.Status.working)
+                    }
                 }
+            } header: {
+                sectionHeader(query.isEmpty ? "Hosts" : "Matches", count: filtered.count)
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+    }
+
+    private func sectionHeader(_ title: String, count: Int) -> some View {
+        HStack(spacing: 8) {
+            Text(title.uppercased())
+                .font(.system(size: Theme.ui(11), weight: .bold))
+                .tracking(1.1)
+            Text("\(count)")
+                .font(.system(size: Theme.ui(11), weight: .bold, design: .monospaced))
+                .monospacedDigit()
+                .opacity(0.65)
+            Spacer()
+        }
+        .foregroundStyle(Theme.textSecondary)
+        .padding(.vertical, 4)
+        .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 6, trailing: 20))
+        .listRowBackground(Color.clear)
+        .textCase(nil)
     }
 
     private func open(_ host: Host) {
@@ -216,6 +275,74 @@ struct HostListView: View {
         }
         message += " Each host still needs a password or key before it can connect."
         notice = message
+    }
+}
+
+/// A shell you already have open.
+///
+/// Deliberately not the same shape as a host row: this one is *live*, and the
+/// difference has to be legible at a glance or the two sections read as one
+/// list with a duplicate in it. The gem pulses while connecting, the subtitle
+/// says what the session is doing rather than where it lives, and the grid
+/// size is there because it is the one number that proves the far end and the
+/// terminal agree.
+private struct SessionRow: View {
+    let session: TerminalSession
+
+    var body: some View {
+        HStack(spacing: 11) {
+            Circle()
+                .fill(tint)
+                .frame(width: 6, height: 6)
+                .shadow(color: tint.opacity(0.7), radius: 4)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(session.title ?? session.host.alias)
+                    .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            if case .connected = session.state {
+                Text("\(session.grid.columns)\u{00d7}\(session.grid.rows)")
+                    .font(.system(size: Theme.ui(10), weight: .semibold, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .glassPill(tone: .dark)
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: Theme.ui(11), weight: .semibold))
+                .foregroundStyle(Theme.textSecondary.opacity(0.7))
+        }
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+    }
+
+    private var tint: Color {
+        switch session.state {
+        case .connecting: return Theme.Status.working
+        case .connected:  return Theme.Status.ready
+        case .failed:     return Theme.Status.danger
+        case .closed:     return Theme.Status.neutral
+        }
+    }
+
+    private var subtitle: String {
+        switch session.state {
+        case .connecting: return "connecting\u{2026}"
+        case .connected:  return session.host.displaySubtitle
+        case .failed(let why): return why
+        case .closed(let why): return why ?? "closed"
+        }
     }
 }
 

@@ -116,9 +116,9 @@ final class TerminalSurfaceView: UIView {
     /// derived from the width instead, and clamped to what stays legible.
     static func defaultFontSize(forWidth width: CGFloat) -> Float {
         guard width > 0 else { return 11 }
-        let target: CGFloat = 52
+        let target = CGFloat(Preferences.shared.terminalColumns)
         let size = width / (target * cellWidthRatio)
-        return Float(min(max(size, 8), 15))
+        return Float(min(max(size, 6), 20))
     }
 
     init(app: Ghostty.App, fontSize: Float? = nil) {

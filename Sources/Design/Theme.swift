@@ -21,6 +21,14 @@ enum Theme {
 
     // MARK: - Palette — neutral, low-saturation
 
+    /// The one ground the whole app sits on.
+    ///
+    /// Set once at the root; every screen below is transparent. Two
+    /// near-blacks a few percent apart do not read as a design choice, they
+    /// read as a seam — which is exactly what shipping `paneTile` under one
+    /// view and `backdropDark` under the next produced.
+    static let appBackground = Color(red: 0.039, green: 0.039, blue: 0.055)
+
     /// Opaque backing for a terminal surface. The terminal is a solid tile
     /// laid on the app's glass sheet — opaque so the glass shows only in the
     /// chrome and gaps, and so the streaming region never blends against

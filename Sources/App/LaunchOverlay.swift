@@ -52,15 +52,17 @@ struct LaunchOverlay: View {
             }
 
             VStack(spacing: 14) {
-                ContermWordmark(height: 34)
+                ContermWordmark(height: 46)
                     .foregroundStyle(Theme.Brand.cream)
                     .blur(radius: markIn ? 0 : 18)
                     .opacity(markIn ? 1 : 0)
                     .scaleEffect(markIn ? 1 : 0.96)
 
                 Text("A modern way to connect.")
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .tracking(3)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .tracking(2)
+                    .minimumScaleFactor(0.8)
+                    .lineLimit(1)
                     .foregroundStyle(Theme.Brand.cream.opacity(0.75))
                     .opacity(taglineIn ? 1 : 0)
             }
@@ -82,25 +84,26 @@ struct LaunchOverlay: View {
         }
 
         withAnimation(.easeOut(duration: 0.45)) { wash = 1 }
-        withAnimation(.easeOut(duration: 0.55).delay(0.10)) { markIn = true }
-        withAnimation(.easeOut(duration: 0.35).delay(0.42)) { taglineIn = true }
+        withAnimation(.easeOut(duration: 0.70).delay(0.12)) { markIn = true }
+        withAnimation(.easeOut(duration: 0.40).delay(0.58)) { taglineIn = true }
 
         SoundEffects.shared.play(.connect)
         Haptics.shared.prepare()
 
         Task {
-            try? await Task.sleep(for: .milliseconds(1_150))
+            try? await Task.sleep(for: .milliseconds(1_450))
             finish()
         }
     }
 
     private func finish() {
         guard !leaving else { return }
-        leaving = true
-        // Opacity and blur leave together, so it dissolves rather than fades.
-        withAnimation(.easeIn(duration: 0.32)) { }
+        // The state change has to happen *inside* withAnimation. Setting it
+        // first and then calling an empty withAnimation animates nothing —
+        // which is why this used to flash past instead of dissolving.
+        withAnimation(.easeIn(duration: 0.36)) { leaving = true }
         Task {
-            try? await Task.sleep(for: .milliseconds(320))
+            try? await Task.sleep(for: .milliseconds(360))
             onFinish()
         }
     }

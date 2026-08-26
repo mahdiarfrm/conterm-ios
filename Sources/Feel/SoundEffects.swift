@@ -41,6 +41,7 @@ final class SoundEffects {
     private var next = 0
     private var buffers: [String: [AVAudioPCMBuffer]] = [:]
     private var started = false
+    private var idleTimer: Task<Void, Never>?
 
     private let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
 
@@ -60,6 +61,29 @@ final class SoundEffects {
         player.stop()
         player.scheduleBuffer(buffer, at: nil, options: .interrupts)
         player.play()
+        scheduleIdleStop()
+    }
+
+    /// Park the engine after a few seconds of quiet.
+    ///
+    /// A running AVAudioEngine holds a render thread awake. On a Mac that is
+    /// invisible; on a phone it is a battery cost for nothing, and on a
+    /// loaded machine it shows up as a stream of CoreAudio overload warnings.
+    /// The buffers stay rendered, so restarting is cheap.
+    private func scheduleIdleStop() {
+        idleTimer?.cancel()
+        idleTimer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            await MainActor.run { self?.stopEngine() }
+        }
+    }
+
+    private func stopEngine() {
+        guard started else { return }
+        engine.pause()
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        started = false
     }
 
     /// Sound and haptic together. A tap that only clicks feels hollow on a
@@ -77,6 +101,13 @@ final class SoundEffects {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
             try session.setActive(true)
+
+            // Already built, just parked by the idle timer.
+            if !players.isEmpty {
+                try engine.start()
+                started = true
+                return true
+            }
 
             for _ in 0..<4 {
                 let player = AVAudioPlayerNode()

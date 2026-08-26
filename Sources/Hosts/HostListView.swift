@@ -35,7 +35,9 @@ struct HostListView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
+            VStack(spacing: 0) {
+                brandHeader
+                Group {
                 if store.hosts.isEmpty {
                     EmptyHostsView(creating: $creating,
                                    importing: $importing,
@@ -43,34 +45,13 @@ struct HostListView: View {
                 } else {
                     list
                 }
-            }
-            .background(Theme.backdropDark.ignoresSafeArea())
-            .navigationTitle("Hosts")
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    ContermWordmark(height: 18)
-                        .foregroundStyle(Theme.accentOnDark)
                 }
+                .frame(maxHeight: .infinity)
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { importing = true } label: {
-                        Image(systemName: "square.and.arrow.down")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button { quickConnecting = true } label: {
-                            Label("Quick Connect", systemImage: "bolt.horizontal.fill")
-                        }
-                        Button { creating = true } label: {
-                            Label("New Host", systemImage: "plus")
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
-            }
+            .background(Theme.appBackground.ignoresSafeArea())
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom) { paletteBar }
             .sheet(isPresented: $paletteOpen) {
                 CommandPalette(store: store,
@@ -101,6 +82,42 @@ struct HostListView: View {
         .tint(Theme.accentOnDark)
     }
 
+    private var brandHeader: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                ContermWordmark(height: Theme.ui(30))
+                    .foregroundStyle(Theme.accentOnDark)
+                if !store.hosts.isEmpty {
+                    Text("\(store.hosts.count) host\(store.hosts.count == 1 ? "" : "s")")
+                        .font(.system(size: Theme.ui(11), weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.textSecondary)
+                        .monospacedDigit()
+                }
+            }
+            Spacer(minLength: 8)
+            headerButton("square.and.arrow.down") { importing = true }
+            headerButton("plus") { creating = true }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
+        .rollUp()
+    }
+
+    private func headerButton(_ symbol: String, action: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.shared.fire(.light)
+            action()
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: Theme.ui(15), weight: .semibold))
+                .foregroundStyle(Theme.accentOnDark)
+                .frame(width: Theme.ui(38), height: Theme.ui(38))
+                .glassPill(tone: .dark)
+        }
+        .buttonStyle(PressablePill(scale: 0.9))
+    }
+
     private var paletteBar: some View {
         Button {
             paletteOpen = true
@@ -114,21 +131,22 @@ struct HostListView: View {
                 Spacer()
             }
             .foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 18)
+            .frame(height: Theme.ui(50))
+            .floatingGlass()
+            .shadow(color: .black.opacity(0.45), radius: 18, y: 7)
             .padding(.horizontal, 16)
-            .frame(height: Theme.ui(46))
-            .glassPill(tone: .dark)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
+            .padding(.bottom, 10)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressablePill())
     }
 
     private var list: some View {
         List {
-            ForEach(filtered) { host in
+            ForEach(Array(filtered.enumerated()), id: \.element.id) { index, host in
                 HStack(spacing: 0) {
                     Button { open(host) } label: { HostRow(host: host) }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressableRow())
                     // The briefing is a peer of connecting, not buried in a
                     // menu — "how is that box?" is the question you open the
                     // app for as often as "give me a shell".
@@ -142,6 +160,8 @@ struct HostListView: View {
                     .buttonStyle(.plain)
                 }
                 .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.stroke)
+                .revealCascade(index)
                 .swipeActions(edge: .trailing) {
                     Button("Delete", role: .destructive) { store.delete(host) }
                     Button("Edit") { editing = host }.tint(Theme.Status.working)
@@ -239,16 +259,19 @@ private struct EmptyHostsView: View {
     var body: some View {
         VStack(spacing: 14) {
             Image(systemName: "externaldrive.connected.to.line.below")
-                .font(.system(size: 30, weight: .light))
+                .font(.system(size: 32, weight: .light))
                 .foregroundStyle(Theme.textSecondary)
+                .rollUp(delay: 0.05)
             Text("No hosts yet")
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .font(.system(size: 19, weight: .semibold, design: .rounded))
                 .foregroundStyle(Theme.textPrimary)
+                .rollUp(delay: 0.11)
             Text("Connect straight away with user@host, or save hosts you use often.")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
+                .rollUp(delay: 0.17)
 
             Button("Quick Connect") { quickConnecting = true }
                 .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
@@ -256,7 +279,8 @@ private struct EmptyHostsView: View {
                 .padding(.horizontal, 22)
                 .frame(height: Theme.hitTarget)
                 .background(Capsule().fill(Theme.accentOnDark))
-                .padding(.top, 4)
+                .padding(.top, 6)
+                .rollUp(delay: 0.23)
 
             HStack(spacing: 10) {
                 Button("Add host") { creating = true }
@@ -274,6 +298,8 @@ private struct EmptyHostsView: View {
                     .glassPill(tone: .dark)
             }
             .padding(.top, 4)
+            .rollUp(delay: 0.29)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

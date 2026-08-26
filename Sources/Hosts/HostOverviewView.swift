@@ -34,7 +34,7 @@ struct HostOverviewView: View {
             }
             .padding(18)
         }
-        .background(Theme.backdropDark.ignoresSafeArea())
+        .background(Theme.appBackground.ignoresSafeArea())
         .navigationTitle(host.alias)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -64,11 +64,7 @@ struct HostOverviewView: View {
         let health = currentHealth
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 9) {
-                Circle()
-                    .fill(health.color)
-                    .frame(width: 9, height: 9)
-                    .shadow(color: health.color.opacity(0.85), radius: 5)
-                    .shadow(color: health.color.opacity(0.4), radius: 10)
+                HealthGem(health: health)
                 Text(headline)
                     .font(.system(size: 21, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.textPrimary)
@@ -111,7 +107,7 @@ struct HostOverviewView: View {
 
     @ViewBuilder
     private func bands(_ info: HostInfo) -> some View {
-        Band("Vitals") {
+        Band("Vitals", reveal: 0) {
             if let uptime = info.uptime { Row("Uptime", uptime) }
             if let load = info.loadAvg {
                 Row("Load", String(format: "%.2f  %.2f  %.2f", load.0, load.1, load.2),
@@ -126,7 +122,7 @@ struct HostOverviewView: View {
         }
 
         if !info.disks.isEmpty {
-            Band("Disks") {
+            Band("Disks", reveal: 0.06) {
                 ForEach(info.disks, id: \.mount) { disk in
                     Meter(label: disk.mount,
                           detail: "\(fmtKB(disk.usedKB)) of \(fmtKB(disk.totalKB))",
@@ -136,7 +132,7 @@ struct HostOverviewView: View {
         }
 
         if !info.ips.isEmpty || !info.listeningPorts.isEmpty {
-            Band("Network") {
+            Band("Network", reveal: 0.12) {
                 if !info.ips.isEmpty { Row("Addresses", info.ips.joined(separator: "  ")) }
                 if !info.listeningPorts.isEmpty {
                     Row("Listening", info.listeningPorts.prefix(8).joined(separator: "  "))
@@ -145,7 +141,7 @@ struct HostOverviewView: View {
         }
 
         if let containers = info.containers, !containers.isEmpty {
-            Band(info.containerRuntime?.displayName ?? "Containers") {
+            Band(info.containerRuntime?.displayName ?? "Containers", reveal: 0.12) {
                 ForEach(containers.prefix(10), id: \.name) { c in
                     HStack(spacing: 8) {
                         Circle()
@@ -166,7 +162,7 @@ struct HostOverviewView: View {
         }
 
         if info.kubelet || info.kubeNodes != nil || (info.vms?.isEmpty == false) {
-            Band("Workloads") {
+            Band("Workloads", reveal: 0.18) {
                 if info.kubelet { Row("Kubelet", "active") }
                 if let nodes = info.kubeNodes { Row("Cluster nodes", "\(nodes)") }
                 if let vms = info.vms, !vms.isEmpty { Row("VMs", vms.joined(separator: "  ")) }
@@ -175,7 +171,7 @@ struct HostOverviewView: View {
 
         if info.failedUnits != nil || info.cronEntries != nil
             || !info.timers.isEmpty || info.usersLoggedIn != nil {
-            Band("Health") {
+            Band("Health", reveal: 0.24) {
                 if let failed = info.failedUnits {
                     Row("Failed units", "\(failed)",
                         tint: failed > 0 ? Theme.Status.danger : nil)
@@ -193,7 +189,7 @@ struct HostOverviewView: View {
         }
 
         if !info.topProcs.isEmpty {
-            Band("Busiest") {
+            Band("Busiest", reveal: 0.30) {
                 ForEach(info.topProcs.prefix(5), id: \.name) { p in
                     HStack {
                         Text(p.name)
@@ -211,7 +207,7 @@ struct HostOverviewView: View {
         }
 
         if !info.journalErrors.isEmpty || !info.kernelWarnings.isEmpty {
-            Band("Recent errors") {
+            Band("Recent errors", reveal: 0.36) {
                 ForEach(Array((info.journalErrors + info.kernelWarnings).prefix(8).enumerated()),
                         id: \.offset) { _, line in
                     Text(line)
@@ -260,10 +256,12 @@ struct HostOverviewView: View {
 /// the background. No card, no fill, no nesting.
 private struct Band<Content: View>: View {
     let title: String
+    var reveal: Double = 0
     @ViewBuilder var content: Content
 
-    init(_ title: String, @ViewBuilder content: () -> Content) {
+    init(_ title: String, reveal: Double = 0, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.reveal = reveal
         self.content = content()
     }
 
@@ -279,6 +277,36 @@ private struct Band<Content: View>: View {
             content
         }
         .padding(.vertical, 12)
+        .rollUp(delay: reveal)
+    }
+}
+
+/// The status gem. Still when healthy; a slow pulse when not.
+///
+/// Driven by a `TimelineView` at 20fps rather than `repeatForever`, and
+/// paused outright when there is nothing to say — an idle screen must not
+/// hold a render loop open.
+private struct HealthGem: View {
+    let health: HostHealth
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var animates: Bool {
+        !reduceMotion && (health == .attention || health == .distress)
+    }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: !animates)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            // Held mid-cycle when gated off, so the signal survives without
+            // a clock — Conterm's rule for every pulse in the app.
+            let pulse = animates ? 0.5 + 0.5 * sin(t * 3.0) : 0.5
+            Circle()
+                .fill(health.color)
+                .frame(width: 9, height: 9)
+                .shadow(color: health.color.opacity(0.55 + 0.35 * pulse), radius: 5)
+                .shadow(color: health.color.opacity(0.25 + 0.25 * pulse), radius: 11)
+        }
+        .frame(width: 9, height: 9)
     }
 }
 

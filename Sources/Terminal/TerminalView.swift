@@ -57,13 +57,19 @@ struct KeyAccessoryBar: View {
                 modifier("alt", on: $alt)
                 ForEach(Self.keys) { key in
                     Button { tap(key) } label: { label(for: key) }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressablePill(scale: 0.9))
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
-        .background(Theme.paneTitleBar.opacity(0.92))
+        .background(alignment: .top) {
+            // A hairline along the top edge separates the bar from the
+            // terminal without drawing a full divider across the glass.
+            Rectangle().fill(Theme.stroke).frame(height: 1)
+        }
+        .background(.ultraThinMaterial)
+        .background(Theme.paneTitleBar.opacity(0.72))
     }
 
     @ViewBuilder
@@ -96,7 +102,7 @@ struct KeyAccessoryBar: View {
                         .fill(binding.wrappedValue ? Theme.accentOnDark : .clear))
                 .glassPill(tone: .dark, selected: binding.wrappedValue)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressablePill(scale: 0.9))
         .animation(Theme.Spring.snappy, value: binding.wrappedValue)
     }
 

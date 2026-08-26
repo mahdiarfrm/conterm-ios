@@ -97,6 +97,8 @@ struct QuickConnectView: View {
                         .foregroundStyle(Theme.Status.danger)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.appBackground.ignoresSafeArea())
             .navigationTitle("Quick Connect")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

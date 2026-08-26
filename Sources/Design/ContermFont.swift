@@ -82,9 +82,23 @@ struct ContermText: View {
 struct ContermWordmark: View {
     var height: CGFloat = 26
 
+    /// Resolved once. `UIImage(named:)` finds loose bundle resources in most
+    /// cases but not all, so fall back to loading the file by URL before
+    /// dropping to the text mark.
+    private static let image: UIImage? = {
+        if let named = UIImage(named: "text-logo") {
+            return named.withRenderingMode(.alwaysTemplate)
+        }
+        if let url = Bundle.main.url(forResource: "text-logo", withExtension: "png"),
+           let data = try? Data(contentsOf: url),
+           let loaded = UIImage(data: data) {
+            return loaded.withRenderingMode(.alwaysTemplate)
+        }
+        return nil
+    }()
+
     var body: some View {
-        if let image = UIImage(named: "text-logo")?
-            .withRenderingMode(.alwaysTemplate) {
+        if let image = Self.image {
             Image(uiImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)

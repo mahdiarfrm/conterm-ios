@@ -6,7 +6,7 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            Theme.paneTile.ignoresSafeArea()
+            Theme.appBackground.ignoresSafeArea()
 
             if let error = ghostty.startupError {
                 StartupFailureView(message: error)

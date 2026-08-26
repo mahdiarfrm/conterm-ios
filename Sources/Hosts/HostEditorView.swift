@@ -92,6 +92,8 @@ struct HostEditorView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.appBackground.ignoresSafeArea())
             .navigationTitle(existing == nil ? "New Host" : "Edit Host")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

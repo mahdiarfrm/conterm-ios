@@ -30,7 +30,8 @@ struct TerminalScreen: View {
 
             KeyAccessoryBar(session: session)
         }
-        .background(Theme.paneTile.ignoresSafeArea())
+        .background(Theme.appBackground.ignoresSafeArea())
+        .animation(Theme.Spring.soft, value: session.state)
         .navigationTitle(session.title ?? session.host.alias)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.paneTitleBar, for: .navigationBar)
@@ -51,7 +52,7 @@ private struct ConnectingOverlay: View {
         .padding(20)
         .glassPanel(cornerRadius: Theme.panelCorner, shadowRadius: 24, shadowY: 11)
         .transition(.scale(scale: 0.96).combined(with: .opacity))
-        .animation(Theme.Spring.soft, value: host)
+        .rollUp()
     }
 }
 
@@ -74,5 +75,6 @@ private struct SessionMessage: View {
         .frame(maxWidth: 320)
         .glassPanel(cornerRadius: Theme.panelCorner, shadowRadius: 24, shadowY: 11)
         .transition(.scale(scale: 0.96).combined(with: .opacity))
+        .rollUp()
     }
 }

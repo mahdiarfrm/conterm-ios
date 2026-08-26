@@ -113,10 +113,9 @@ struct CommandPalette: View {
         NavigationStack {
             VStack(spacing: 0) {
                 field
-                Divider().overlay(Theme.stroke)
                 list
             }
-            .background(Theme.backdropDark.ignoresSafeArea())
+            .background(Theme.appBackground.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -154,14 +153,21 @@ struct CommandPalette: View {
                 }
             }
         }
+        .padding(.horizontal, 18)
+        .frame(height: Theme.ui(52))
+        .glassPill(tone: .dark)
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
     }
 
     private var list: some View {
-        List(rows) { row in
+        List(Array(rows.enumerated()), id: \.element.id) { index, row in
             Button { run(row) } label: { PaletteRow(row: row) }
+                .buttonStyle(PressableRow())
                 .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.stroke)
+                .rollUp(delay: 0.03 + Double(min(index, 8)) * 0.035)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)

@@ -100,11 +100,31 @@ struct GlassTile: ViewModifier {
     }
 }
 
+/// A floating control that gets *real* Liquid Glass where the OS has it.
+///
+/// Reserved for chrome that floats over content on its own — the palette bar,
+/// a docked action. Anything sitting inside a `glassPanel` keeps the flat
+/// lens, because glass over glass pays a second lensing pass and reads muddy.
+struct FloatingGlass: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content.glassEffect(.regular.interactive(), in: Capsule(style: .continuous))
+        } else {
+            content.modifier(GlassPill(tone: .resolve(scheme)))
+        }
+    }
+}
+
 extension View {
     /// Wrap a pill-shaped control in the flat chrome lens.
     func glassPill(tone: ChromeTone? = nil, selected: Bool = false) -> some View {
         modifier(GlassPill(tone: tone, selected: selected))
     }
+
+    /// Floating chrome: real glass on iOS 26, flat lens below.
+    func floatingGlass() -> some View { modifier(FloatingGlass()) }
 
     /// Conditionally wrap — when `enabled` is false the view is returned
     /// bare. Used by clusters that supply one shared surface for a row of

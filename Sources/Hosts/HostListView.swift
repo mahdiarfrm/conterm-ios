@@ -17,6 +17,12 @@ struct HostListView: View {
     @State private var paletteOpen = false
     @State private var keysOpen = false
     @State private var settingsOpen = false
+    @State private var groups = HostGroupStore()
+    /// The host whose long-press asked for a brand-new group.
+    @State private var groupingHost: Host?
+    @State private var renamingGroup: HostGroup?
+    @State private var newGroupName = ""
+    private let editingGroups = false
 
     private var filtered: [Host] {
         let base = store.hosts.sorted {
@@ -71,7 +77,38 @@ struct HostListView: View {
             }
             .sheet(isPresented: $keysOpen) { KeyLibraryView() }
             .sheet(isPresented: $settingsOpen) { SettingsView() }
-            .sheet(isPresented: $creating) { HostEditorView(store: store) }
+            .alert("New group", isPresented: Binding(
+                get: { groupingHost != nil },
+                set: { if !$0 { groupingHost = nil; newGroupName = "" } })) {
+                TextField("Name", text: $newGroupName)
+                Button("Cancel", role: .cancel) { groupingHost = nil; newGroupName = "" }
+                Button("Create") {
+                    let name = newGroupName.trimmingCharacters(in: .whitespaces)
+                    guard !name.isEmpty, var host = groupingHost else { return }
+                    host.groupID = groups.create(name: name).id
+                    store.update(host)
+                    groupingHost = nil
+                    newGroupName = ""
+                }
+            }
+            .alert("Rename group", isPresented: Binding(
+                get: { renamingGroup != nil },
+                set: { if !$0 { renamingGroup = nil; newGroupName = "" } })) {
+                TextField("Name", text: $newGroupName)
+                Button("Cancel", role: .cancel) { renamingGroup = nil; newGroupName = "" }
+                Button("Rename") {
+                    let name = newGroupName.trimmingCharacters(in: .whitespaces)
+                    guard !name.isEmpty, var group = renamingGroup else { return }
+                    group.name = name
+                    groups.update(group)
+                    renamingGroup = nil
+                    newGroupName = ""
+                }
+            }
+            .onChange(of: renamingGroup?.id) { _, _ in
+                newGroupName = renamingGroup?.name ?? ""
+            }
+            .sheet(isPresented: $creating) { HostEditorView(store: store, groups: groups) }
             .sheet(isPresented: $quickConnecting) {
                 QuickConnectView(app: app, store: store) {
                     SessionStore.shared.adopt($0)
@@ -79,7 +116,7 @@ struct HostListView: View {
                 }
             }
             .sheet(item: $editing) { host in
-                HostEditorView(store: store, existing: host)
+                HostEditorView(store: store, groups: groups, existing: host)
             }
             .fileImporter(isPresented: $importing,
                           allowedContentTypes: [.item],
@@ -188,37 +225,150 @@ struct HostListView: View {
                 }
             }
 
-            Section {
-                ForEach(Array(filtered.enumerated()), id: \.element.id) { index, host in
-                    HStack(spacing: 0) {
-                        Button { open(host) } label: { HostRow(host: host) }
-                            .buttonStyle(PressableRow())
-                        // The briefing is a peer of connecting, not buried in
-                        // a menu — "how is that box?" is the question you open
-                        // the app for as often as "give me a shell".
-                        Button { overview = host } label: {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: Theme.ui(15), weight: .medium))
-                                .foregroundStyle(Theme.textSecondary)
-                                .frame(width: Theme.hitTarget, height: Theme.hitTarget)
-                                .contentShape(Rectangle())
+            // Searching flattens the groups. A query is a question about
+            // every host you have, and hiding half the answers inside a
+            // folded folder would be a lie.
+            if !query.isEmpty {
+                Section {
+                    hostRows(filtered)
+                } header: {
+                    sectionHeader("Matches", count: filtered.count)
+                }
+            } else {
+                ForEach(groups.ordered) { group in
+                    let members = filtered.filter { $0.groupID == group.id }
+                    if !members.isEmpty || editingGroups {
+                        Section {
+                            if !group.collapsed { hostRows(members) }
+                        } header: {
+                            groupHeader(group, count: members.count)
                         }
-                        .buttonStyle(.plain)
-                    }
-                    .listRowBackground(Color.clear)
-                    .listRowSeparatorTint(Theme.stroke)
-                    .revealCascade(index)
-                    .swipeActions(edge: .trailing) {
-                        Button("Delete", role: .destructive) { store.delete(host) }
-                        Button("Edit") { editing = host }.tint(Theme.Status.working)
                     }
                 }
-            } header: {
-                sectionHeader(query.isEmpty ? "Hosts" : "Matches", count: filtered.count)
+
+                let loose = filtered.filter { host in
+                    host.groupID == nil || groups.group(id: host.groupID) == nil
+                }
+                if !loose.isEmpty {
+                    Section {
+                        hostRows(loose)
+                    } header: {
+                        sectionHeader(groups.groups.isEmpty ? "Hosts" : "Ungrouped",
+                                      count: loose.count)
+                    }
+                }
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+    }
+
+    @ViewBuilder
+    private func hostRows(_ hosts: [Host]) -> some View {
+        ForEach(Array(hosts.enumerated()), id: \.element.id) { index, host in
+            HStack(spacing: 0) {
+                Button { open(host) } label: {
+                    HostRow(host: host, group: groups.group(id: host.groupID))
+                }
+                .buttonStyle(PressableRow())
+                // The briefing is a peer of connecting, not buried in a
+                // menu — "how is that box?" is the question you open the
+                // app for as often as "give me a shell".
+                Button { overview = host } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: Theme.ui(15), weight: .medium))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: Theme.hitTarget, height: Theme.hitTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .listRowBackground(Color.clear)
+            .listRowSeparatorTint(Theme.stroke)
+            .revealCascade(index)
+            .swipeActions(edge: .trailing) {
+                Button("Delete", role: .destructive) { store.delete(host) }
+                Button("Edit") { editing = host }.tint(Theme.Status.working)
+            }
+            .contextMenu { groupMenu(for: host) }
+        }
+    }
+
+    /// Move a host between groups without opening the editor. Assigning a
+    /// folder is a one-tap decision and should cost one long-press, not a
+    /// round trip through a form.
+    @ViewBuilder
+    private func groupMenu(for host: Host) -> some View {
+        Menu("Move to group", systemImage: "folder") {
+            ForEach(groups.ordered) { group in
+                Button {
+                    var updated = host
+                    updated.groupID = group.id
+                    store.update(updated)
+                    Haptics.shared.fire(.selection)
+                } label: {
+                    Label(group.name, systemImage: host.groupID == group.id
+                          ? "checkmark.circle.fill" : "circle")
+                }
+            }
+            if host.groupID != nil {
+                Divider()
+                Button("Remove from group") {
+                    var updated = host
+                    updated.groupID = nil
+                    store.update(updated)
+                }
+            }
+            Divider()
+            Button("New group\u{2026}", systemImage: "folder.badge.plus") {
+                groupingHost = host
+            }
+        }
+        Button("Edit host", systemImage: "pencil") { editing = host }
+        Button("Overview", systemImage: "info.circle") { overview = host }
+    }
+
+    private func groupHeader(_ group: HostGroup, count: Int) -> some View {
+        Button {
+            withAnimation(Theme.Spring.snappy) { groups.toggleCollapsed(group) }
+            Haptics.shared.fire(.light)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: Theme.ui(9), weight: .bold))
+                    .rotationEffect(.degrees(group.collapsed ? 0 : 90))
+                Circle()
+                    .fill(group.color)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: group.color.opacity(0.7), radius: 3)
+                Text(group.name.uppercased())
+                    .font(.system(size: Theme.ui(11), weight: .bold))
+                    .tracking(1.1)
+                Text("\(count)")
+                    .font(.system(size: Theme.ui(11), weight: .bold, design: .monospaced))
+                    .monospacedDigit()
+                    .opacity(0.65)
+                Spacer()
+            }
+            .foregroundStyle(group.color)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 6, trailing: 20))
+        .listRowBackground(Color.clear)
+        .textCase(nil)
+        .contextMenu {
+            Button("Rename\u{2026}", systemImage: "pencil") { renamingGroup = group }
+            Button("Delete group", systemImage: "trash", role: .destructive) {
+                for host in store.hosts where host.groupID == group.id {
+                    var updated = host
+                    updated.groupID = nil
+                    store.update(updated)
+                }
+                groups.delete(group)
+            }
+        }
     }
 
     private func sectionHeader(_ title: String, count: Int) -> some View {
@@ -348,14 +498,17 @@ private struct SessionRow: View {
 
 private struct HostRow: View {
     let host: Host
+    var group: HostGroup?
 
     var body: some View {
         HStack(spacing: 11) {
+            // The gem carries two facts at once: colour is the group, fill is
+            // whether this host can actually connect. A grouped host with no
+            // key still reads as "no key" via the badge on the right.
             Circle()
-                .fill(hasSecret ? Theme.Status.ready : Theme.Status.neutral)
+                .fill(gemColor)
                 .frame(width: 6, height: 6)
-                .shadow(color: (hasSecret ? Theme.Status.ready : Theme.Status.neutral)
-                    .opacity(0.6), radius: 3)
+                .shadow(color: gemColor.opacity(0.6), radius: 3)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(host.alias)
@@ -386,6 +539,11 @@ private struct HostRow: View {
     }
 
     private var hasSecret: Bool { KeyStore.shared.hasSecret(for: host) }
+
+    private var gemColor: Color {
+        if let group { return group.color }
+        return hasSecret ? Theme.Status.ready : Theme.Status.neutral
+    }
 }
 
 private struct EmptyHostsView: View {

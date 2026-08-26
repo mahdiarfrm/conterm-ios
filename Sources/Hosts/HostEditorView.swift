@@ -9,6 +9,7 @@ struct HostEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
     let store: HostStore
+    let groups: HostGroupStore
     /// nil = creating a new host.
     var existing: Host?
 
@@ -18,9 +19,11 @@ struct HostEditorView: View {
     @State private var error: String?
     @State private var library = KeyLibrary.shared
     @State private var managingKeys = false
+    @State private var newGroup = ""
 
-    init(store: HostStore, existing: Host? = nil) {
+    init(store: HostStore, groups: HostGroupStore, existing: Host? = nil) {
         self.store = store
+        self.groups = groups
         self.existing = existing
         _host = State(initialValue: existing ?? Host())
     }
@@ -61,6 +64,32 @@ struct HostEditorView: View {
                     Text("Connection")
                 } footer: {
                     Text("Name is what you'll see in the list. Leave it blank to use the hostname.")
+                }
+
+                Section("Group") {
+                    Picker("Group", selection: $host.groupID) {
+                        Text("None").tag(UUID?.none)
+                        ForEach(groups.ordered) { group in
+                            Label {
+                                Text(group.name)
+                            } icon: {
+                                Circle().fill(group.color).frame(width: 8, height: 8)
+                            }
+                            .tag(UUID?.some(group.id))
+                        }
+                    }
+                    HStack {
+                        TextField("New group", text: $newGroup)
+                            .textInputAutocapitalization(.words)
+                        Button("Add") {
+                            let name = newGroup.trimmed
+                            guard !name.isEmpty else { return }
+                            host.groupID = groups.create(name: name).id
+                            newGroup = ""
+                            Haptics.shared.fire(.success)
+                        }
+                        .disabled(newGroup.trimmed.isEmpty)
+                    }
                 }
 
                 Section("Authentication") {

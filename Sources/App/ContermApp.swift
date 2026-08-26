@@ -31,7 +31,21 @@ final class GhosttyRuntime {
     private(set) var app: Ghostty.App?
     private(set) var startupError: String?
 
-    init() {
+    private(set) var ready = false
+
+    init() {}
+
+    /// Build the engine after the first frame.
+    ///
+    /// Called from the launch overlay, which is on screen while this runs —
+    /// so the work is covered rather than staring at nothing. Still on the
+    /// main actor, because libghostty wants its app created on the thread
+    /// that will tick it; the point is only that it happens *after* SwiftUI
+    /// has something to draw.
+    func start() {
+        guard !ready, startupError == nil else { return }
+        defer { ready = true }
+
         guard let config = Ghostty.Config() else {
             startupError = "Couldn't build a terminal configuration."
             return

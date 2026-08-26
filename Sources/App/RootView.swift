@@ -8,7 +8,10 @@ struct RootView: View {
         ZStack {
             Theme.appBackground.ignoresSafeArea()
 
-            if let error = ghostty.startupError {
+            if !ghostty.ready {
+                // Nothing yet — the overlay is covering this.
+                Color.clear
+            } else if let error = ghostty.startupError {
                 StartupFailureView(message: error)
             } else if let app = ghostty.app {
                 HostListView(app: app)
@@ -17,7 +20,11 @@ struct RootView: View {
             }
 
             if launching {
-                LaunchOverlay { launching = false }
+                LaunchOverlay(
+                    // Build the engine while the animation plays, one runloop
+                    // in, so the overlay is actually on screen first.
+                    onAppear: { ghostty.start() },
+                    onFinish: { launching = false })
                     .transition(.opacity)
                     .zIndex(10)
             }

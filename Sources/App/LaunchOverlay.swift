@@ -13,6 +13,7 @@ import SwiftUI
 /// deliberately not the cool neutral of the running app. Conterm makes the
 /// same distinction: the entrance is warm, the tool is cold.
 struct LaunchOverlay: View {
+    var onAppear: () -> Void = {}
     let onFinish: () -> Void
 
     @State private var wash = 0.0
@@ -71,7 +72,13 @@ struct LaunchOverlay: View {
         .blur(radius: leaving ? 18 : 0)
         .contentShape(Rectangle())
         .onTapGesture { finish() }
-        .task { run() }
+        .task {
+            run()
+            // One runloop after the first frame, so the overlay is visible
+            // before the engine build blocks the main actor.
+            try? await Task.sleep(for: .milliseconds(16))
+            onAppear()
+        }
     }
 
     private func run() {

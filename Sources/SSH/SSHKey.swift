@@ -143,6 +143,14 @@ final class KeyLibrary {
         return key
     }
 
+    func rename(_ key: SSHKey, to name: String) {
+        guard let i = keys.firstIndex(where: { $0.id == key.id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        keys[i].name = trimmed
+        save()
+    }
+
     func delete(_ key: SSHKey) {
         keys.removeAll { $0.id == key.id }
         try? KeyStore.shared.delete(for: key.id)

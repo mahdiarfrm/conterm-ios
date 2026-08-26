@@ -43,7 +43,7 @@ struct HostEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Connection") {
+                Section {
                     LabeledField("Name", text: $host.alias,
                                  placeholder: host.hostname.isEmpty ? "web-01" : host.hostname)
                     LabeledField("Host", text: $host.hostname, placeholder: "10.0.0.4",
@@ -57,6 +57,10 @@ struct HostEditorView: View {
                             .multilineTextAlignment(.trailing)
                             .frame(width: 80)
                     }
+                } header: {
+                    Text("Connection")
+                } footer: {
+                    Text("Name is what you'll see in the list. Leave it blank to use the hostname.")
                 }
 
                 Section("Authentication") {

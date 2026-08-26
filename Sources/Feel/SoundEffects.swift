@@ -145,107 +145,155 @@ final class SoundEffects {
         guard let left = buf.floatChannelData?[0],
               let right = buf.floatChannelData?[1] else { return nil }
 
-        var phase = 0.0
-        var harmonicPhase = 0.0
+        var phases = [Double](repeating: 0, count: spec.partials.count)
+        var noiseState = [Double](repeating: 0, count: spec.partials.count)
         let n = Int(frames)
 
         for i in 0..<n {
             let t = Double(i) / rate
-            let frac = Double(i) / Double(max(n - 1, 1))
-            // Linear pitch ramp; a constant tone sets both ends equal.
-            let freq = spec.freqStart + (spec.freqEnd - spec.freqStart) * frac
+            var sample = 0.0
 
-            phase += 2 * .pi * freq / rate
-            harmonicPhase += 2 * .pi * freq * spec.harmonic / rate
+            for (idx, p) in spec.partials.enumerated() {
+                switch p.shape {
+                case .sine:
+                    phases[idx] += 2 * .pi * spec.freq * p.harmonic / rate
+                    if phases[idx] > 2 * .pi { phases[idx] -= 2 * .pi }
+                    sample += sin(phases[idx]) * p.amplitude
 
-            // A folded sine rather than a real triangle: smoother harmonic
-            // content, none of the buzzy edge.
-            let fundamental = sin(phase)
-            let overtone = asin(sin(harmonicPhase)) * (2 / .pi)
-            var sample = fundamental * (1 - spec.harmonicMix)
-                       + overtone * spec.harmonicMix
-
-            // Linear attack into an exponential decay — the struck-object
-            // curve that gives a *plink* rather than a rectangular *blip*.
-            let env: Double
-            if t < spec.attack {
-                env = t / spec.attack
-            } else {
-                env = exp(-(t - spec.attack) / spec.decay)
+                case .noise:
+                    // The strike transient. `harmonic` doubles as a 1-pole
+                    // lowpass coefficient — small is a muffled "tff", larger
+                    // a brighter "tch". Generation stops at 25ms with a 5ms
+                    // ramp from 20ms so the cutoff itself cannot click.
+                    if t > 0.025 { break }
+                    let raw = Double.random(in: -1...1)
+                    let alpha = p.harmonic
+                    noiseState[idx] = noiseState[idx] * (1 - alpha) + raw * alpha
+                    let life = exp(-t / 0.012)
+                    let cut = max(0, min(1, (0.025 - t) / 0.005))
+                    sample += noiseState[idx] * p.amplitude * life * cut
+                }
             }
 
+            // Linear attack into exponential decay — the struck-object curve.
+            let env: Double = t < spec.attack
+                ? t / spec.attack
+                : exp(-(t - spec.attack) / spec.decay)
+
             // The exponential never reaches zero, so force the tail to meet
-            // silence: any discontinuity at the buffer edge clicks.
+            // silence; a discontinuity at the buffer edge clicks.
             let tail = max(0, min(1, (spec.duration - t) / 0.006))
 
-            sample *= env * spec.gain * tail
-            // tanh is loudness and clipping safety in one: roughly linear
-            // when quiet, smoothly compressing at the rails.
-            let v = Float(tanh(sample * 2.2))
+            let v = Float(tanh(sample * env * spec.gain * 2.5))
             left[i] = v
             right[i] = v
         }
         return buf
     }
 
+    /// One rendered sound. Conterm's shape exactly: a tonal fundamental, a
+    /// sub-octave that turns a tap into a *thunk*, and an optional noise
+    /// strike. Everything lives between 108 and 260 Hz — these are meant to
+    /// be felt more than heard, which is what keeps a UI sound from reading
+    /// as a cartoon.
     private struct Tone {
         var duration: Double
-        var freqStart: Double
-        var freqEnd: Double
-        var harmonic: Double = 2
-        var harmonicMix: Double = 0.25
+        var freq: Double
+        var partials: [Partial]
         var attack: Double = 0.005
-        var decay: Double = 0.08
-        var gain: Double = 0.5
+        var decay: Double
+        var gain: Double
+
+        struct Partial {
+            enum Shape { case sine, noise }
+            /// Sine: multiple of the fundamental (0.5 = octave below).
+            /// Noise: the lowpass coefficient.
+            var harmonic: Double
+            var amplitude: Double
+            var shape: Shape
+        }
     }
 
-    /// Two variants per effect, detuned slightly, so repeats don't sound
-    /// mechanical.
-    private static func specs(for effect: Effect) -> [Tone] {
-        func pair(_ base: Tone, detune: Double = 1.03) -> [Tone] {
-            var b = base
-            b.freqStart *= detune
-            b.freqEnd *= detune
-            return [base, b]
-        }
+    /// Fundamental + sub-octave + strike.
+    private static func thunk(_ f: Double, decay: Double, gain: Double,
+                              body: Double = 0.35, attack: Double = 0.14,
+                              noiseAlpha: Double = 0.08) -> Tone {
+        Tone(duration: max(0.05, decay * 3), freq: f,
+             partials: [
+                .init(harmonic: 1.0, amplitude: 0.45, shape: .sine),
+                .init(harmonic: 0.5, amplitude: body, shape: .sine),
+                .init(harmonic: noiseAlpha, amplitude: attack, shape: .noise),
+             ],
+             decay: decay, gain: gain)
+    }
 
+    /// `thunk` without the strike. For frequent events, where the noise
+    /// partial accumulates into splashiness across rapid repeats.
+    private static func cleanThunk(_ f: Double, decay: Double, gain: Double,
+                                   body: Double = 0.28) -> Tone {
+        Tone(duration: max(0.05, decay * 3), freq: f,
+             partials: [
+                .init(harmonic: 1.0, amplitude: 0.55, shape: .sine),
+                .init(harmonic: 0.5, amplitude: body, shape: .sine),
+             ],
+             decay: decay, gain: gain)
+    }
+
+    /// Conterm's own values. Three close variants per family so consecutive
+    /// events don't repeat the same tone.
+    private static func specs(for effect: Effect) -> [Tone] {
         switch effect {
+        // Connect / disconnect take the pane family's anchor range — the
+        // most prominent action gets the lowest, weightiest sound.
         case .connect:
-            // Rising fifth — an opening gesture.
-            return pair(Tone(duration: 0.34, freqStart: 420, freqEnd: 630,
-                             harmonicMix: 0.3, decay: 0.13, gain: 0.42))
+            return [165, 175, 158].map { cleanThunk($0, decay: 0.026, gain: 0.30) }
         case .disconnect:
-            return pair(Tone(duration: 0.30, freqStart: 520, freqEnd: 330,
-                             harmonicMix: 0.22, decay: 0.11, gain: 0.34))
+            return [142, 134, 150].map { cleanThunk($0, decay: 0.026, gain: 0.28) }
+
+        // Overlay open/close: the longest body in the palette, because it
+        // accompanies a full-screen bloom. Sub-octave near 60Hz reads as
+        // felt rather than pitched.
         case .paletteOpen:
-            return pair(Tone(duration: 0.16, freqStart: 660, freqEnd: 880,
-                             decay: 0.05, gain: 0.30))
+            return [125, 135].map { thunk($0, decay: 0.050, gain: 0.24, body: 0.42, attack: 0.10) }
         case .paletteClose:
-            return pair(Tone(duration: 0.14, freqStart: 780, freqEnd: 560,
-                             decay: 0.045, gain: 0.26))
+            return [108, 118].map { thunk($0, decay: 0.050, gain: 0.22, body: 0.42, attack: 0.10) }
+
+        // Cursor tick. Pitched above the event range and kept extremely
+        // short so scrolling a list does not become a continuous tone.
+        // Pure sine — no sub, no strike.
         case .paletteMove:
-            // Very short and quiet: this fires on every row change.
-            return pair(Tone(duration: 0.05, freqStart: 1180, freqEnd: 1180,
-                             harmonicMix: 0.1, attack: 0.002, decay: 0.014,
-                             gain: 0.16), detune: 1.06)
+            return [220, 230, 210].map { f in
+                Tone(duration: 0.04, freq: f,
+                     partials: [.init(harmonic: 1, amplitude: 0.40, shape: .sine)],
+                     attack: 0.003, decay: 0.010, gain: 0.10)
+            }
+
+        // Confirm keeps the strike, so a committed action reads as more
+        // substantial than the navigation before it.
         case .paletteConfirm:
-            return pair(Tone(duration: 0.20, freqStart: 720, freqEnd: 1080,
-                             harmonicMix: 0.32, decay: 0.07, gain: 0.36))
+            return [175, 188].map { thunk($0, decay: 0.045, gain: 0.24, body: 0.38) }
+
         case .toggle:
-            return pair(Tone(duration: 0.07, freqStart: 900, freqEnd: 900,
-                             attack: 0.002, decay: 0.02, gain: 0.22))
+            return [195, 205, 185].map { thunk($0, decay: 0.018, gain: 0.16, body: 0.28, attack: 0.08) }
+
         case .notify:
-            return pair(Tone(duration: 0.42, freqStart: 590, freqEnd: 880,
-                             harmonicMix: 0.4, decay: 0.16, gain: 0.40))
+            return [245, 260].map { thunk($0, decay: 0.060, gain: 0.26, body: 0.40, attack: 0.12) }
+
+        // Error: low warm sine and sub-octave, longest decay, no strike.
+        // A failure should carry a steady body rather than a percussive
+        // attack — it is a shrug, not an alarm.
         case .error:
-            // Low and falling. Never harsh — a failure should read as a
-            // shrug, not an alarm.
-            return pair(Tone(duration: 0.34, freqStart: 300, freqEnd: 190,
-                             harmonicMix: 0.18, decay: 0.13, gain: 0.36))
+            return [110.0].map { f in
+                Tone(duration: 0.4, freq: f,
+                     partials: [
+                        .init(harmonic: 1.0, amplitude: 0.50, shape: .sine),
+                        .init(harmonic: 0.5, amplitude: 0.30, shape: .sine),
+                     ],
+                     attack: 0.012, decay: 0.100, gain: 0.22)
+            }
+
         case .click:
-            return pair(Tone(duration: 0.06, freqStart: 1020, freqEnd: 1020,
-                             harmonicMix: 0.12, attack: 0.002, decay: 0.018,
-                             gain: 0.20))
+            return [210, 222, 200].map { thunk($0, decay: 0.015, gain: 0.14, body: 0.26, attack: 0.08) }
         }
     }
 }

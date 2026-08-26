@@ -30,6 +30,14 @@ final class TerminalSession: Identifiable, Hashable {
     private(set) var state: State = .connecting
     private(set) var title: String?
 
+    /// Diagnostics. A black terminal can mean the surface failed, the
+    /// connection failed, or the far end simply hasn't said anything yet —
+    /// three very different problems that look identical without these.
+    private(set) var bytesIn = 0
+    private(set) var bytesOut = 0
+    var surfaceAlive: Bool { surfaceView.controller?.handle != nil }
+    var grid: (columns: Int, rows: Int) { surfaceView.controller?.gridSize ?? (0, 0) }
+
     private let transport = Libssh2Transport()
     private let log = Logger(subsystem: "dev.conterm.ios", category: "session")
 
@@ -43,7 +51,8 @@ final class TerminalSession: Identifiable, Hashable {
         }
 
         // Terminal -> wire.
-        controller.onWrite = { [transport] data in
+        controller.onWrite = { [transport, weak self] data in
+            self?.bytesOut += data.count
             Task { await transport.send(data) }
         }
         // Terminal geometry -> remote pty.
@@ -63,7 +72,10 @@ final class TerminalSession: Identifiable, Hashable {
             // Wire -> terminal. Set before connecting so nothing that arrives
             // during login is dropped.
             await transport.setOnOutput { data in
-                Task { @MainActor in controller?.write(data) }
+                Task { @MainActor in
+                    self?.bytesIn += data.count
+                    controller?.write(data)
+                }
             }
             await transport.setOnClosed { reason in
                 Task { @MainActor in

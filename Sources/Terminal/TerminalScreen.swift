@@ -24,10 +24,18 @@ struct TerminalScreen: View {
                                    detail: reason ?? "The host closed the connection.",
                                    tint: Theme.textSecondary)
                 case .connected:
-                    EmptyView()
+                    // Connected but the far end has said nothing and the
+                    // grid is empty — that is a real state, and it is not
+                    // the same as a broken renderer. Say which.
+                    if session.bytesIn == 0 {
+                        SessionMessage(title: "Connected",
+                                       detail: "Waiting for the first output from \(session.host.hostname).",
+                                       tint: Theme.sshAccent)
+                    }
                 }
             }
 
+            diagnostics
             KeyAccessoryBar(session: session)
         }
         .background(Theme.appBackground.ignoresSafeArea())
@@ -36,6 +44,28 @@ struct TerminalScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.paneTitleBar, for: .navigationBar)
         .onDisappear { session.disconnect() }
+    }
+}
+
+extension TerminalScreen {
+    /// A single line of truth about the session. Cheap to read, and the
+    /// difference between "the app is broken" and "the host is quiet".
+    fileprivate var diagnostics: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(session.surfaceAlive ? Theme.Status.ready : Theme.Status.danger)
+                .frame(width: 5, height: 5)
+            Text(session.surfaceAlive
+                 ? "surface \(session.grid.columns)×\(session.grid.rows)"
+                 : "no surface")
+            Text("↓\(session.bytesIn)  ↑\(session.bytesOut)")
+            Spacer()
+        }
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(Theme.textSecondary.opacity(0.75))
+        .monospacedDigit()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 5)
     }
 }
 

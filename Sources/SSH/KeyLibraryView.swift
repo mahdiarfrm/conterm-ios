@@ -13,6 +13,8 @@ struct KeyLibraryView: View {
     @State private var importing = false
     @State private var pasting = false
     @State private var error: String?
+    @State private var renaming: SSHKey?
+    @State private var newName = ""
 
     var body: some View {
         NavigationStack {
@@ -44,6 +46,14 @@ struct KeyLibraryView: View {
                           allowedContentTypes: [.data, .item, .text],
                           allowsMultipleSelection: false) { importFile($0) }
             .sheet(isPresented: $pasting) { PasteKeySheet(onAdd: add) }
+            .alert("Rename key", isPresented: .constant(renaming != nil)) {
+                TextField("Name", text: $newName)
+                Button("Cancel", role: .cancel) { renaming = nil }
+                Button("Save") {
+                    if let key = renaming { library.rename(key, to: newName) }
+                    renaming = nil
+                }
+            }
             .alert("Couldn't import that key",
                    isPresented: .constant(error != nil)) {
                 Button("OK") { error = nil }
@@ -106,6 +116,17 @@ struct KeyLibraryView: View {
                 .revealCascade(index)
                 .swipeActions {
                     Button("Delete", role: .destructive) { library.delete(key) }
+                    Button("Rename") {
+                        newName = key.name
+                        renaming = key
+                    }
+                    .tint(Theme.Status.working)
+                }
+                .contextMenu {
+                    Button {
+                        newName = key.name
+                        renaming = key
+                    } label: { Label("Rename", systemImage: "pencil") }
                 }
             }
         }

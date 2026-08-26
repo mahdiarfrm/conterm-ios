@@ -131,6 +131,15 @@ final class TerminalSurfaceView: UIView {
         clipsToBounds = true
         contentScaleFactor = UIScreen.main.scale
 
+        // Tapping a terminal means "I want to type here". Without this the
+        // view never becomes first responder, so the software keyboard never
+        // appears and the surface is read-only — which looks exactly like a
+        // broken keyboard rather than a missing gesture.
+        isUserInteractionEnabled = true
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        tap.cancelsTouchesInView = false
+        addGestureRecognizer(tap)
+
         // The real width isn't known until layout, but the surface's font is
         // fixed at creation — so size against the screen, which is the width
         // the view will have.
@@ -216,6 +225,19 @@ final class TerminalSurfaceView: UIView {
     // MARK: - First responder
 
     override var canBecomeFirstResponder: Bool { true }
+
+    @objc private func handleTap() {
+        focusKeyboard()
+    }
+
+    /// Raise the software keyboard and give the surface focus.
+    ///
+    /// Called on the tap and once when the screen appears, because a terminal
+    /// you have just opened is one you are about to type into.
+    func focusKeyboard() {
+        guard !isFirstResponder else { return }
+        _ = becomeFirstResponder()
+    }
 
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()

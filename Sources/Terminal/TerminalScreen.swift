@@ -31,7 +31,22 @@ struct TerminalScreen: View {
         .navigationTitle(session.title ?? session.host.alias)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.paneTitleBar, for: .navigationBar)
-        .onDisappear { session.disconnect() }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("Disconnect", systemImage: "bolt.horizontal.circle", role: .destructive) {
+                        SessionStore.shared.close(session)
+                        dismiss()
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
+        // Deliberately no `onDisappear { disconnect() }`. Leaving the screen
+        // is navigation, not hanging up: the shell keeps running and this
+        // host reopens straight back into it. Only the menu above ends one.
+        .onAppear { session.surfaceView.focusKeyboard() }
     }
 }
 

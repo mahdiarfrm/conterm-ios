@@ -73,11 +73,20 @@ struct KeyAccessoryBar: View {
             Rectangle().fill(Theme.stroke).frame(height: 1)
         }
         .background {
-            if #available(iOS 26, *) {
-                Rectangle().fill(.ultraThinMaterial).glassEffect(in: Rectangle())
-            } else {
-                Rectangle().fill(.ultraThinMaterial)
+            Group {
+                if #available(iOS 26, *) {
+                    Rectangle().fill(.ultraThinMaterial).glassEffect(in: Rectangle())
+                } else {
+                    Rectangle().fill(.ultraThinMaterial)
+                }
             }
+            // The bar's glass has to run to the bottom edge: stopping at the
+            // safe area leaves a black strip under the keys where the window
+            // background shows through, which reads as a rendering bug rather
+            // than as the home indicator. `.container` on purpose — extending
+            // past the *keyboard* safe area instead would paint a slab in the
+            // gap the keyboard is about to fill.
+            .ignoresSafeArea(.container, edges: .bottom)
         }
     }
 

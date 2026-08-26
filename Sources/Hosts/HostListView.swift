@@ -67,7 +67,10 @@ struct HostListView: View {
             .sheet(isPresented: $keysOpen) { KeyLibraryView() }
             .sheet(isPresented: $creating) { HostEditorView(store: store) }
             .sheet(isPresented: $quickConnecting) {
-                QuickConnectView(app: app, store: store) { session = $0 }
+                QuickConnectView(app: app, store: store) {
+                    SessionStore.shared.adopt($0)
+                    session = $0
+                }
             }
             .sheet(item: $editing) { host in
                 HostEditorView(store: store, existing: host)
@@ -187,8 +190,10 @@ struct HostListView: View {
             return
         }
         SoundEffects.shared.tap(.connect, haptic: .medium)
-        let s = TerminalSession(host: host, app: app)
-        s.connect(credentials: credentials)
+        // Resumes the shell if this host already has one. Opening a second
+        // connection to a box you are already on is never what the tap meant.
+        let s = SessionStore.shared.session(for: host, app: app,
+                                            credentials: credentials)
         store.noteConnected(host)
         session = s
     }

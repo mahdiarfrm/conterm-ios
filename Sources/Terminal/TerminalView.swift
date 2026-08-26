@@ -30,28 +30,37 @@ struct KeyAccessoryBar: View {
     @State private var control = false
     @State private var alt = false
 
+    /// A key is either a real key press or a literal character.
+    ///
+    /// The distinction is load-bearing, not stylistic. `ghostty_surface_text`
+    /// is paste, and ghostty replaces ESC, DEL and the tty control bytes with
+    /// spaces in a paste — so escape, backspace, the arrows and every Ctrl
+    /// chord have to go through the *key* API with a keycode. Only the plain
+    /// punctuation here is safe to send as text.
     private struct Key: Identifiable {
         let id = UUID()
-        let label: String
-        let symbol: String?
-        let send: String
+        var label: String = ""
+        var symbol: String?
+        /// A real key press. Preferred; `text` is the fallback for characters
+        /// that carry no control meaning.
+        var usage: UIKeyboardHIDUsage?
+        var text: String?
         var wide = false
     }
 
     private static let keys: [Key] = [
-        .init(label: "esc", symbol: nil, send: "\u{1b}"),
-        .init(label: "tab", symbol: nil, send: "\t"),
-        // CR, not LF. A shell ignores a bare newline.
-        .init(label: "", symbol: "return", send: "\r", wide: true),
-        .init(label: "", symbol: "arrow.up", send: "\u{1b}[A"),
-        .init(label: "", symbol: "arrow.down", send: "\u{1b}[B"),
-        .init(label: "", symbol: "arrow.left", send: "\u{1b}[D"),
-        .init(label: "", symbol: "arrow.right", send: "\u{1b}[C"),
-        .init(label: "/", symbol: nil, send: "/"),
-        .init(label: "-", symbol: nil, send: "-"),
-        .init(label: "|", symbol: nil, send: "|"),
-        .init(label: "~", symbol: nil, send: "~"),
-        .init(label: "", symbol: "delete.left", send: "\u{7f}"),
+        .init(label: "esc", usage: .keyboardEscape),
+        .init(label: "tab", usage: .keyboardTab),
+        .init(symbol: "return", usage: .keyboardReturnOrEnter, wide: true),
+        .init(symbol: "arrow.up", usage: .keyboardUpArrow),
+        .init(symbol: "arrow.down", usage: .keyboardDownArrow),
+        .init(symbol: "arrow.left", usage: .keyboardLeftArrow),
+        .init(symbol: "arrow.right", usage: .keyboardRightArrow),
+        .init(label: "/", text: "/"),
+        .init(label: "-", text: "-"),
+        .init(label: "|", text: "|"),
+        .init(label: "~", text: "~"),
+        .init(symbol: "delete.left", usage: .keyboardDeleteOrBackspace),
     ]
 
     var body: some View {
@@ -133,16 +142,24 @@ struct KeyAccessoryBar: View {
     }
 
     private func tap(_ key: Key) {
-        // A latched Ctrl applies to the accessory keys too — ctrl+[ is a
-        // real thing people press.
-        if control, let scalar = key.send.unicodeScalars.first,
-           let code = TerminalKeyMap.controlCode(for: scalar) {
-            session.send(String(UnicodeScalar(code)))
-        } else if alt {
-            session.send("\u{1b}" + key.send)
-        } else {
-            session.send(key.send)
+        var raw = GHOSTTY_MODS_NONE.rawValue
+        if control { raw |= GHOSTTY_MODS_CTRL.rawValue }
+        if alt { raw |= GHOSTTY_MODS_ALT.rawValue }
+        let mods = ghostty_input_mods_e(raw)
+
+        if let usage = key.usage {
+            session.press(usage, mods: mods, text: key.text)
+        } else if let text = key.text {
+            if raw == GHOSTTY_MODS_NONE.rawValue {
+                // No modifier and no control meaning: text is fine and keeps
+                // the character exactly as printed on the key.
+                session.send(text)
+            } else if let scalar = text.unicodeScalars.first,
+                      let usage = TerminalKeyMap.usage(for: scalar) {
+                session.press(usage, mods: mods, text: text)
+            }
         }
+
         control = false
         alt = false
         syncModifiers()

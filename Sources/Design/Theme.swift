@@ -145,6 +145,22 @@ enum Theme {
         static let danger = Color(red: 1.00, green: 0.36, blue: 0.36)
     }
 
+    /// Backgrounds for swipe actions and other places a system control paints
+    /// **white text on our colour**.
+    ///
+    /// The `Status` palette above is tuned for coloured text on a dark bed,
+    /// which is the opposite problem: `Status.danger` and `Status.working`
+    /// are light enough that white on top of them barely reads. These are the
+    /// same hues taken deep enough to sit behind white — the crimson is the
+    /// brand's own, so destructive still looks like Conterm rather than like
+    /// the system red.
+    enum Action {
+        static let destructive = Color(red: 0.72, green: 0.11, blue: 0.16)
+        static let neutral     = Color(red: 0.16, green: 0.18, blue: 0.23)
+        static let accent      = Color(red: 0.10, green: 0.42, blue: 0.80)
+        static let caution     = Color(red: 0.72, green: 0.40, blue: 0.10)
+    }
+
     /// The marketing identity, deliberately distinct from the running app's
     /// cool neutral chrome: a warm red family on warm cream. Used on the
     /// launch screen and nowhere else.

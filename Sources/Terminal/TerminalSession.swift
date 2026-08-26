@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 import os
 
 /// One SSH connection wired to one terminal surface.
@@ -118,6 +119,22 @@ final class TerminalSession: Identifiable, Hashable {
         // too, which no amount of staring at the screen can tell you.
         send("input path ok\r")
 
+        // Scroll direction is easy to get backwards and impossible to eyeball
+        // from a screenshot, so the render check proves it: fill the
+        // scrollback with numbered lines, drag "down", and read back which
+        // ones are on screen. Higher numbers scrolling away means older
+        // output came into view, which is what dragging down should do.
+        if ProcessInfo.processInfo.environment["CONTERM_SCROLLTEST"] != nil {
+            for i in 1...200 { surfaceView.controller?.write(Data("line \(i)\r\n".utf8)) }
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(300))
+                NSLog("CONTERM-DIAG before scroll: \(self?.firstViewportLine ?? "-")")
+                self?.surfaceView.controller?.scroll(byPixels: 400)
+                try? await Task.sleep(for: .milliseconds(300))
+                NSLog("CONTERM-DIAG after drag down: \(self?.firstViewportLine ?? "-")")
+            }
+        }
+
         // Report what the emulator and the layer actually hold, a beat later
         // so the display link has had frames to present. This is the probe
         // that found the libxev wakeup bug and it is cheap, so it stays.
@@ -125,6 +142,12 @@ final class TerminalSession: Identifiable, Hashable {
             try? await Task.sleep(for: .milliseconds(600))
             self?.dumpDiagnostics()
         }
+    }
+
+    /// The first non-empty line currently on screen.
+    var firstViewportLine: String {
+        let text = surfaceView.controller?.viewportText ?? ""
+        return text.split(separator: "\n").first.map(String.init) ?? "(empty)"
     }
 
     /// Print what the terminal contains and what the render layer looks like.
@@ -191,6 +214,19 @@ final class TerminalSession: Identifiable, Hashable {
 
     func send(_ text: String) {
         surfaceView.controller?.send(text)
+    }
+
+    /// Press a key, as opposed to inserting text. See `TerminalKeyMap.press`
+    /// for why the difference matters.
+    func press(_ usage: UIKeyboardHIDUsage,
+               mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE,
+               text: String? = nil) {
+        guard let key = TerminalKeyMap.press(usage, mods: mods, text: text),
+              let controller = surfaceView.controller else { return }
+        controller.send(key: key)
+        var release = key
+        release.action = GHOSTTY_ACTION_RELEASE
+        controller.send(key: release)
     }
 
     func disconnect() {

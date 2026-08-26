@@ -135,6 +135,24 @@ final class SurfaceController {
         send(text)
     }
 
+    /// Scroll the terminal by a pixel delta.
+    ///
+    /// `precision` tells libghostty the offset is in pixels rather than
+    /// wheel ticks, which is what a finger produces — without it a drag is
+    /// interpreted as a mouse wheel and jumps a screen at a time.
+    ///
+    /// This also does the right thing inside a full-screen program: when the
+    /// far end has mouse reporting on, ghostty turns the scroll into the
+    /// escape sequences `less` and `vim` expect instead of moving scrollback.
+    func scroll(byPixels dy: CGFloat, dx: CGFloat = 0) {
+        guard let handle, dy != 0 || dx != 0 else { return }
+        var mods = ghostty_input_scroll_mods_t()
+        // Bit 0 of ghostty's ScrollMods is `precision`.
+        mods |= 1
+        ghostty_surface_mouse_scroll(handle, Double(dx), Double(dy), mods)
+        needsDraw = true
+    }
+
     // MARK: - Geometry
 
     /// Push the view's size and scale down to libghostty.

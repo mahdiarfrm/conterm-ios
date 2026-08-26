@@ -132,6 +132,71 @@ enum TerminalKeyMap {
                    .replacingOccurrences(of: "\n", with: "\r")
     }
 
+    /// Build a synthetic key press for a named key.
+    ///
+    /// This exists because `ghostty_surface_text` is **paste**, not typing:
+    /// `Surface.textCallback` routes into `completeClipboardPaste`, and
+    /// `input/paste.zig` replaces NUL, BS, ENQ, EOT, ESC, DEL and the tty
+    /// control characters (Ctrl-C, Ctrl-Z, Ctrl-U, Ctrl-W, Ctrl-R…) with
+    /// **spaces**, exactly as xterm does, as a paste-injection defence. So
+    /// every key that matters to a terminal — escape, backspace, the arrows,
+    /// any Ctrl chord — has to arrive as a key event with a keycode, never as
+    /// text. Sending them as text is how backspace types a space.
+    static func press(_ usage: UIKeyboardHIDUsage,
+                      mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE,
+                      text: String? = nil) -> ghostty_input_key_s? {
+        guard let keycode = virtualKeyCode(for: usage) else { return nil }
+        var key = ghostty_input_key_s()
+        key.action = GHOSTTY_ACTION_PRESS
+        key.mods = mods
+        key.consumed_mods = GHOSTTY_MODS_NONE
+        key.keycode = UInt32(keycode)
+        key.composing = false
+        key.unshifted_codepoint = text?.unicodeScalars.first?.value ?? 0
+        key.text = nil
+        return key
+    }
+
+    /// The HID usage for a printable character, so a Ctrl chord can be sent
+    /// as a real key event rather than as a raw control byte.
+    static func usage(for scalar: UnicodeScalar) -> UIKeyboardHIDUsage? {
+        switch scalar {
+        case "a", "A": return .keyboardA
+        case "b", "B": return .keyboardB
+        case "c", "C": return .keyboardC
+        case "d", "D": return .keyboardD
+        case "e", "E": return .keyboardE
+        case "f", "F": return .keyboardF
+        case "g", "G": return .keyboardG
+        case "h", "H": return .keyboardH
+        case "i", "I": return .keyboardI
+        case "j", "J": return .keyboardJ
+        case "k", "K": return .keyboardK
+        case "l", "L": return .keyboardL
+        case "m", "M": return .keyboardM
+        case "n", "N": return .keyboardN
+        case "o", "O": return .keyboardO
+        case "p", "P": return .keyboardP
+        case "q", "Q": return .keyboardQ
+        case "r", "R": return .keyboardR
+        case "s", "S": return .keyboardS
+        case "t", "T": return .keyboardT
+        case "u", "U": return .keyboardU
+        case "v", "V": return .keyboardV
+        case "w", "W": return .keyboardW
+        case "x", "X": return .keyboardX
+        case "y", "Y": return .keyboardY
+        case "z", "Z": return .keyboardZ
+        case "[": return .keyboardOpenBracket
+        case "]": return .keyboardCloseBracket
+        case "\\": return .keyboardBackslash
+        case "-", "_": return .keyboardHyphen
+        case "/", "?": return .keyboardSlash
+        case " ": return .keyboardSpacebar
+        default: return nil
+        }
+    }
+
     /// The C0 control code a character produces when Ctrl is held.
     ///
     /// `Ctrl-A`..`Ctrl-Z` are 0x01..0x1A, and the handful of punctuation

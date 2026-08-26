@@ -115,12 +115,13 @@ struct KeyLibraryView: View {
                 .listRowSeparatorTint(Theme.stroke)
                 .revealCascade(index)
                 .swipeActions {
-                    Button("Delete", role: .destructive) { library.delete(key) }
+                    Button("Delete") { library.delete(key) }
+                        .tint(Theme.Action.destructive)
                     Button("Rename") {
                         newName = key.name
                         renaming = key
                     }
-                    .tint(Theme.Status.working)
+                    .tint(Theme.Action.neutral)
                 }
                 .contextMenu {
                     Button {

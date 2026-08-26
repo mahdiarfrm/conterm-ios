@@ -140,6 +140,13 @@ final class TerminalSurfaceView: UIView {
         tap.cancelsTouchesInView = false
         addGestureRecognizer(tap)
 
+        // Scrollback by drag. libghostty has no idea a touch screen exists;
+        // it wants scroll deltas, so this is the thing that turns a finger
+        // into them.
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+        pan.maximumNumberOfTouches = 2
+        addGestureRecognizer(pan)
+
         // The real width isn't known until layout, but the surface's font is
         // fixed at creation — so size against the screen, which is the width
         // the view will have.
@@ -219,7 +226,10 @@ final class TerminalSurfaceView: UIView {
     }
 
     @objc private func step() {
-        MainActor.assumeIsolated { controller?.drawIfNeeded() }
+        MainActor.assumeIsolated {
+            stepFlick()
+            controller?.drawIfNeeded()
+        }
     }
 
     // MARK: - First responder
@@ -228,6 +238,49 @@ final class TerminalSurfaceView: UIView {
 
     @objc private func handleTap() {
         focusKeyboard()
+    }
+
+    /// Where the last pan update left off, so each frame sends only its own
+    /// delta — libghostty accumulates, and re-sending the whole translation
+    /// every frame would scroll quadratically.
+    private var lastPanY: CGFloat = 0
+
+    /// Leftover momentum after the finger lifts, decayed on the display link.
+    private var flickVelocity: CGFloat = 0
+
+    @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
+        MainActor.assumeIsolated {
+            switch pan.state {
+            case .began:
+                lastPanY = 0
+                flickVelocity = 0
+            case .changed:
+                let y = pan.translation(in: self).y
+                let delta = y - lastPanY
+                lastPanY = y
+                // Content follows the finger: dragging down reveals older
+                // output, which is the direction every touch UI has taught.
+                controller?.scroll(byPixels: delta)
+            case .ended, .cancelled, .failed:
+                // A terminal without flick-scroll feels dead next to every
+                // other list on the phone, so the throw carries on and decays
+                // on the display link.
+                flickVelocity = pan.velocity(in: self).y / 60
+                lastPanY = 0
+            default:
+                break
+            }
+        }
+    }
+
+    /// Bleed off flick momentum, one display-link tick at a time.
+    private func stepFlick() {
+        guard abs(flickVelocity) > 0.5 else {
+            flickVelocity = 0
+            return
+        }
+        controller?.scroll(byPixels: flickVelocity)
+        flickVelocity *= 0.94
     }
 
     /// Raise the software keyboard and give the surface focus.
@@ -260,20 +313,19 @@ extension TerminalSurfaceView: UIKeyInput {
     func insertText(_ text: String) {
         MainActor.assumeIsolated {
             guard let controller else { return }
-            // A sticky Ctrl turns the next character into its control code.
-            // `ghostty_surface_text` would send the literal letter, so this
-            // has to go through the key path instead.
-            if stickyModifiers.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0,
+            // A latched modifier has to go through the *key* path. Sending
+            // the control byte as text would hand it to ghostty's paste
+            // encoder, which replaces Ctrl-C, Ctrl-Z, ESC and friends with
+            // spaces — so a latched Ctrl-C would type a space.
+            let latched = stickyModifiers.rawValue
+            if latched != GHOSTTY_MODS_NONE.rawValue,
                let scalar = text.unicodeScalars.first,
-               let control = TerminalKeyMap.controlCode(for: scalar) {
-                controller.send(String(UnicodeScalar(control)))
-                stickyModifiers = GHOSTTY_MODS_NONE
-                return
-            }
-            if stickyModifiers.rawValue & GHOSTTY_MODS_ALT.rawValue != 0 {
-                // Alt is ESC-prefix, which is what every terminal program
-                // actually reads it as.
-                controller.send("\u{1b}" + TerminalKeyMap.forTerminal(text))
+               let usage = TerminalKeyMap.usage(for: scalar),
+               let key = TerminalKeyMap.press(usage, mods: stickyModifiers, text: text) {
+                controller.send(key: key)
+                var release = key
+                release.action = GHOSTTY_ACTION_RELEASE
+                controller.send(key: release)
                 stickyModifiers = GHOSTTY_MODS_NONE
                 return
             }
@@ -282,7 +334,17 @@ extension TerminalSurfaceView: UIKeyInput {
     }
 
     func deleteBackward() {
-        MainActor.assumeIsolated { controller?.send("\u{7f}") }
+        // Not `send("\u{7f}")`: DEL is one of the bytes ghostty's paste
+        // encoder replaces with a space, so the software keyboard's delete
+        // key would type a space instead of erasing one.
+        MainActor.assumeIsolated {
+            guard let controller,
+                  let key = TerminalKeyMap.press(.keyboardDeleteOrBackspace) else { return }
+            controller.send(key: key)
+            var release = key
+            release.action = GHOSTTY_ACTION_RELEASE
+            controller.send(key: release)
+        }
     }
 
     /// Autocorrect, capitalisation and smart quotes are all actively harmful

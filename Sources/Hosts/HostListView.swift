@@ -214,10 +214,11 @@ struct HostListView: View {
                             .listRowBackground(Color.clear)
                             .listRowSeparatorTint(Theme.stroke)
                             .swipeActions(edge: .trailing) {
-                                Button("Disconnect", role: .destructive) {
+                                Button("Disconnect") {
                                     sessions.close(live)
                                     SoundEffects.shared.play(.disconnect)
                                 }
+                                .tint(Theme.Action.destructive)
                             }
                     }
                 } header: {
@@ -287,8 +288,10 @@ struct HostListView: View {
             .listRowSeparatorTint(Theme.stroke)
             .revealCascade(index)
             .swipeActions(edge: .trailing) {
-                Button("Delete", role: .destructive) { store.delete(host) }
-                Button("Edit") { editing = host }.tint(Theme.Status.working)
+                Button("Delete") { store.delete(host) }
+                    .tint(Theme.Action.destructive)
+                Button("Edit") { editing = host }
+                    .tint(Theme.Action.neutral)
             }
             .contextMenu { groupMenu(for: host) }
         }

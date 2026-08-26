@@ -31,49 +31,78 @@ final class SessionStore {
 
     /// The session for a host, resuming the existing one if it is still up.
     ///
-    /// A session that has failed or been closed is not reusable — its
-    /// transport is gone — so it is replaced rather than handed back.
+    /// Tapping a host means "take me to that machine", and if you are already
+    /// on it that means the shell you left running — opening a second
+    /// connection behind your back is never what the tap meant. Wanting a
+    /// second one is a real thing, but it is a *different* thing, so it has
+    /// its own verb: `newSession`.
     func session(for host: Host,
                  app: Ghostty.App,
                  credentials: @autoclosure () -> SSHCredentials) -> TerminalSession {
-        if let existing = sessions.first(where: { $0.host.id == host.id }) {
-            switch existing.state {
-            case .connecting, .connected:
-                return existing
-            case .failed, .closed:
-                remove(existing)
+        if let existing = liveSession(for: host) { return existing }
+        return newSession(for: host, app: app, credentials: credentials())
+    }
+
+    /// Open another shell on a host you may already be on.
+    ///
+    /// One box, several jobs — a build tailing in one and a shell to poke at
+    /// it in another — is the ordinary way to use a terminal, and the phone
+    /// shouldn't be the one client that can't.
+    @discardableResult
+    func newSession(for host: Host,
+                    app: Ghostty.App,
+                    credentials: SSHCredentials) -> TerminalSession {
+        // Dead sessions for this host are husks; don't let them accumulate
+        // just because a new one was opened beside them.
+        sessions.removeAll {
+            guard $0.host.id == host.id else { return false }
+            switch $0.state {
+            case .failed, .closed: return true
+            case .connecting, .connected: return false
             }
         }
-
         let session = TerminalSession(host: host, app: app)
+        session.ordinal = (sessions.filter { $0.host.id == host.id }.map(\.ordinal).max() ?? 0) + 1
         sessions.insert(session, at: 0)
-        session.connect(credentials: credentials())
+        session.connect(credentials: credentials)
+        // The Island is where a session you walked away from lives.
+        SessionActivityCenter.shared.start(for: session)
         return session
+    }
+
+    /// How many live shells this host has.
+    func liveCount(for host: Host) -> Int {
+        live.filter { $0.host.id == host.id }.count
     }
 
     /// Adopt a session someone else built — Quick Connect makes its own so it
     /// can report an auth failure inside the sheet.
     func adopt(_ session: TerminalSession) {
         guard !sessions.contains(where: { $0 === session }) else { return }
+        session.ordinal = (sessions.filter { $0.host.id == session.host.id }
+            .map(\.ordinal).max() ?? 0) + 1
         sessions.insert(session, at: 0)
+        SessionActivityCenter.shared.start(for: session)
     }
 
-    /// Whether this host already has a shell waiting.
+    /// The most recent live shell on this host, if any.
     func liveSession(for host: Host) -> TerminalSession? {
-        sessions.first {
-            $0.host.id == host.id && ($0.state == .connecting || $0.state == .connected)
-        }
+        live.first { $0.host.id == host.id }
     }
 
     /// Hang up and forget. This is the only path that kills a session, and it
     /// is only ever reached from an explicit user action.
     func close(_ session: TerminalSession) {
         session.disconnect()
+        SessionActivityCenter.shared.end(for: session)
         remove(session)
     }
 
     func closeAll() {
-        for session in sessions { session.disconnect() }
+        for session in sessions {
+            session.disconnect()
+            SessionActivityCenter.shared.end(for: session)
+        }
         sessions.removeAll()
     }
 
@@ -82,6 +111,9 @@ final class SessionStore {
     /// A dead session is kept while its terminal is open so the failure text
     /// stays readable; once you have left that screen it is just a husk.
     func pruneDead() {
+        for session in sessions where !live.contains(where: { $0 === session }) {
+            SessionActivityCenter.shared.end(for: session)
+        }
         sessions.removeAll {
             switch $0.state {
             case .failed, .closed: return true

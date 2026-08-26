@@ -15,7 +15,22 @@
 		B1000031000000000000002 /* michroma-regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000002 /* michroma-regular.ttf */; };
 		B1000031000000000000003 /* text-logo.png in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000003 /* text-logo.png */; };
 		B1000031000000000000004 /* michroma-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000004 /* michroma-OFL.txt */; };
+		B1000021000000000000005 /* ContermWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B1000001000000000000003 /* ContermWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B1000011000000000000001 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B1000021000000000000005 /* ContermWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXContainerItemProxy section */
 		B100000E000000000000001 /* PBXContainerItemProxy */ = {
@@ -24,6 +39,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = B1000007000000000000001;
 			remoteInfo = Conterm;
+		};
+		B100000F000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B100000B000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B1000007000000000000003;
+			remoteInfo = ContermWidget;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -38,6 +60,7 @@
 		B1000030000000000000002 /* michroma-regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "michroma-regular.ttf"; path = "Resources/michroma-regular.ttf"; sourceTree = "<group>"; };
 		B1000030000000000000003 /* text-logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "text-logo.png"; path = "Resources/text-logo.png"; sourceTree = "<group>"; };
 		B1000030000000000000004 /* michroma-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = "michroma-OFL.txt"; path = "Resources/michroma-OFL.txt"; sourceTree = "<group>"; };
+		B1000001000000000000003 /* ContermWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ContermWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -49,6 +72,16 @@
 		B1000003000000000000002 /* Tests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Tests;
+			sourceTree = "<group>";
+		};
+		B1000003000000000000003 /* Widget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Widget;
+			sourceTree = "<group>";
+		};
+		B1000003000000000000004 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -72,6 +105,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B1000004000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -80,6 +120,8 @@
 			children = (
 				B1000003000000000000001 /* Sources */,
 				B1000003000000000000002 /* Tests */,
+				B1000003000000000000003 /* Widget */,
+				B1000003000000000000004 /* Shared */,
 				B1000030000000000000001 /* Assets.xcassets */,
 				B1000030000000000000003 /* text-logo.png */,
 				B1000030000000000000002 /* michroma-regular.ttf */,
@@ -94,6 +136,7 @@
 			children = (
 				B1000001000000000000001 /* Conterm.app */,
 				B1000001000000000000002 /* ContermTests.xctest */,
+				B1000001000000000000003 /* ContermWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -119,13 +162,16 @@
 				B1000009000000000000001 /* Sources */,
 				B1000004000000000000001 /* Frameworks */,
 				B100000A000000000000001 /* Resources */,
+				B1000011000000000000001 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				B100000D000000000000002 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				B1000003000000000000001 /* Sources */,
+				B1000003000000000000004 /* Shared */,
 			);
 			name = Conterm;
 			productName = Conterm;
@@ -151,6 +197,27 @@
 			productName = ContermTests;
 			productReference = B1000001000000000000002 /* ContermTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		B1000007000000000000003 /* ContermWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B1000008000000000000003 /* Build configuration list for PBXNativeTarget "ContermWidget" */;
+			buildPhases = (
+				B1000009000000000000003 /* Sources */,
+				B1000004000000000000003 /* Frameworks */,
+				B100000A000000000000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B1000003000000000000003 /* Widget */,
+				B1000003000000000000004 /* Shared */,
+			);
+			name = ContermWidget;
+			productName = ContermWidget;
+			productReference = B1000001000000000000003 /* ContermWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -189,6 +256,7 @@
 			targets = (
 				B1000007000000000000001 /* Conterm */,
 				B1000007000000000000002 /* ContermTests */,
+				B1000007000000000000003 /* ContermWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -202,6 +270,13 @@
 				B1000031000000000000002 /* michroma-regular.ttf in Resources */,
 				B1000031000000000000003 /* text-logo.png in Resources */,
 				B1000031000000000000004 /* michroma-OFL.txt in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B100000A000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -222,6 +297,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B1000009000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -229,6 +311,11 @@
 			isa = PBXTargetDependency;
 			target = B1000007000000000000001 /* Conterm */;
 			targetProxy = B100000E000000000000001 /* PBXContainerItemProxy */;
+		};
+		B100000D000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B1000007000000000000003 /* ContermWidget */;
+			targetProxy = B100000F000000000000002 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -374,6 +461,58 @@
 			};
 			name = Release;
 		};
+		B100000C000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9W7EUWX57Z;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/WidgetInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Conterm;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.conterm.ios.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B100000C000000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9W7EUWX57Z;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/WidgetInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Conterm;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.conterm.ios.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -400,6 +539,15 @@
 			buildConfigurations = (
 				B100000C000000000000001 /* Debug */,
 				B100000C000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B1000008000000000000003 /* Build configuration list for PBXNativeTarget "ContermWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B100000C000000000000007 /* Debug */,
+				B100000C000000000000008 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

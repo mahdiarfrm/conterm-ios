@@ -28,8 +28,24 @@ final class TerminalSession: Identifiable, Hashable {
     let host: Host
     let surfaceView: TerminalSurfaceView
 
-    private(set) var state: State = .connecting
-    private(set) var title: String?
+    private(set) var state: State = .connecting {
+        didSet {
+            guard state != oldValue else { return }
+            // A phase change is the only thing worth spending an immediate
+            // Live Activity refresh on.
+            SessionActivityCenter.shared.update(for: self, force: true)
+        }
+    }
+
+    /// Which shell on this host this is, 1-based. Only ever shown when a host
+    /// has more than one, because "web-01 #1" on its own is just noise.
+    var ordinal = 1
+    private(set) var title: String? {
+        didSet {
+            guard title != oldValue else { return }
+            SessionActivityCenter.shared.update(for: self)
+        }
+    }
 
     /// Diagnostics. A black terminal can mean the surface failed, the
     /// connection failed, or the far end simply hasn't said anything yet —
@@ -135,6 +151,13 @@ final class TerminalSession: Identifiable, Hashable {
             }
         }
 
+        // Exercise the Live Activity from the render check, which is the only
+        // way to see the Island without a host to connect to.
+        if ProcessInfo.processInfo.environment["CONTERM_ISLAND"] != nil {
+            SessionActivityCenter.shared.start(for: self)
+            NSLog("CONTERM-DIAG island available=\(SessionActivityCenter.shared.isAvailable)")
+        }
+
         // Report what the emulator and the layer actually hold, a beat later
         // so the display link has had frames to present. This is the probe
         // that found the libxev wakeup bug and it is cheap, so it stays.
@@ -173,8 +196,10 @@ final class TerminalSession: Identifiable, Hashable {
             // during login is dropped.
             await transport.setOnOutput { data in
                 Task { @MainActor in
-                    self?.bytesIn += data.count
+                    guard let self else { return }
+                    self.bytesIn += data.count
                     controller?.write(data)
+                    SessionActivityCenter.shared.update(for: self)
                 }
             }
             await transport.setOnClosed { reason in

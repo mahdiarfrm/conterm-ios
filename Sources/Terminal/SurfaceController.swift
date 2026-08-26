@@ -90,7 +90,6 @@ final class SurfaceController {
             ghostty_surface_write_output(handle, base, raw.count)
         }
         bytesWritten += data.count
-        needsDraw = true
         Ghostty.log.info("wrote \(data.count)B total=\(self.bytesWritten)")
     }
 
@@ -150,7 +149,6 @@ final class SurfaceController {
         // Bit 0 of ghostty's ScrollMods is `precision`.
         mods |= 1
         ghostty_surface_mouse_scroll(handle, Double(dx), Double(dy), mods)
-        needsDraw = true
     }
 
     // MARK: - Geometry
@@ -160,12 +158,13 @@ final class SurfaceController {
     /// Driven from `layoutSubviews`, and idempotent: layout runs on every
     /// keyboard animation frame, and re-sizing the terminal 60 times a second
     /// reflows the screen 60 times a second.
-    func updateSize() {
-        guard let handle else { return }
+    @discardableResult
+    func updateSize() -> Bool {
+        guard let handle else { return false }
         let scale = view.contentScaleFactor
         let bounds = view.bounds.size
-        guard bounds.width > 0, bounds.height > 0 else { return }
-        guard bounds != lastPushedSize || scale != lastPushedScale else { return }
+        guard bounds.width > 0, bounds.height > 0 else { return false }
+        guard bounds != lastPushedSize || scale != lastPushedScale else { return false }
         lastPushedSize = bounds
         lastPushedScale = scale
 
@@ -173,6 +172,7 @@ final class SurfaceController {
         ghostty_surface_set_size(handle,
                                  UInt32(bounds.width * scale),
                                  UInt32(bounds.height * scale))
+        return true
     }
 
     /// Current grid, for anyone who needs to open a pty at the right size
@@ -205,28 +205,23 @@ final class SurfaceController {
         ghostty_surface_set_occlusion(handle, visible)
     }
 
-    /// Set by libghostty's RENDER action; consumed by the display link.
+    /// Ask libghostty to schedule a frame.
     ///
-    /// Marking dirty and presenting are separate on purpose: the render
-    /// action arrives on libghostty's thread at whatever rate output
-    /// demands, and presenting has to happen on a frame boundary.
-    private(set) var needsDraw = true
-
+    /// This only *queues* — the renderer thread does the drawing. Calling
+    /// `ghostty_surface_draw` from here instead would run a full drawFrame
+    /// synchronously on the main thread, in addition to the one the renderer
+    /// thread is already doing.
     func markNeedsDisplay() {
         guard let handle else { return }
-        needsDraw = true
         ghostty_surface_refresh(handle)
     }
 
-    /// Called once per frame while the surface is on screen. Draws only when
-    /// something changed, so an idle terminal costs nothing.
-    func drawIfNeeded() {
-        guard let handle, needsDraw else { return }
-        needsDraw = false
-        ghostty_surface_draw(handle)
-    }
-
-    func draw() {
+    /// Draw synchronously, right now, on this thread.
+    ///
+    /// Reserved for the one case ghostty documents it for: keeping the
+    /// contents correct *during* a resize, where waiting for the renderer
+    /// thread would show a stretched frame.
+    func drawNow() {
         guard let handle else { return }
         ghostty_surface_draw(handle)
     }

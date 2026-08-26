@@ -4,6 +4,9 @@ import SwiftUI
 /// currently doing.
 struct TerminalScreen: View {
     let session: TerminalSession
+    /// Supplied by whoever pushed this screen, so a second shell is opened by
+    /// the thing that owns navigation rather than from in here.
+    var onNewShell: ((Host) -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -34,6 +37,11 @@ struct TerminalScreen: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button("Open another shell", systemImage: "plus.rectangle.on.rectangle") {
+                        onNewShell?(session.host)
+                    }
+                    .disabled(onNewShell == nil)
+                    Divider()
                     Button("Disconnect", systemImage: "bolt.horizontal.circle", role: .destructive) {
                         SessionStore.shared.close(session)
                         dismiss()

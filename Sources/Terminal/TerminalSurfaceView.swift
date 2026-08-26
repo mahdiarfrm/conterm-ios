@@ -181,8 +181,12 @@ final class TerminalSurfaceView: UIView {
             sublayer.contentsScale = contentScaleFactor
         }
         MainActor.assumeIsolated {
-            controller?.updateSize()
-            controller?.markNeedsDisplay()
+            guard let controller else { return }
+            let resized = controller.updateSize()
+            // A resize is the one case worth a synchronous frame: the layer
+            // has already changed size, so waiting for the renderer thread
+            // shows the old contents stretched for a beat.
+            if resized { controller.drawNow() } else { controller.markNeedsDisplay() }
         }
     }
 
@@ -194,7 +198,6 @@ final class TerminalSurfaceView: UIView {
                 controller?.updateSize()
                 controller?.setVisible(true)
                 controller?.markNeedsDisplay()
-                startDisplayLink()
             } else {
                 controller?.setVisible(false)
                 stopDisplayLink()
@@ -204,18 +207,25 @@ final class TerminalSurfaceView: UIView {
 
     // MARK: - Presentation
     //
-    // libghostty renders into an IOSurface but the embedded apprt expects
-    // the host to ask for frames — `ghostty_surface_draw` is that ask. Without
-    // it the surface is created, sized, and fed, and never presents anything:
-    // a black rectangle that looks exactly like a broken renderer.
+    // There is deliberately no per-frame draw here.
+    //
+    // There used to be: libghostty's renderer thread was never waking (a
+    // libxev bug that gated mach-port wakeups on macOS only), so nothing
+    // presented unless the host asked for a frame itself. With that fixed the
+    // renderer thread wakes on its own and draws, and a `ghostty_surface_draw`
+    // from a display link is a *second* full synchronous drawFrame — on the
+    // main thread, once per frame, on top of the one already happening. That
+    // is what made scrolling feel like wading.
+    //
+    // The link now exists only to bleed off flick momentum, and only runs
+    // while there is momentum to bleed.
 
-    private func startDisplayLink() {
+    private func startFlickLink() {
         guard displayLink == nil else { return }
         let link = CADisplayLink(target: self, selector: #selector(step))
-        // A terminal has nothing to say most of the time, and the draw is
-        // skipped unless something changed — but capping the rate keeps a
-        // burst of output from pinning the GPU at 120Hz on a ProMotion phone.
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 60, preferred: 60)
+        // Let it run at the panel's real rate: a flick that decays at 60Hz on
+        // a 120Hz phone reads as stutter next to every other list on iOS.
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         displayLink = link
     }
@@ -226,10 +236,7 @@ final class TerminalSurfaceView: UIView {
     }
 
     @objc private func step() {
-        MainActor.assumeIsolated {
-            stepFlick()
-            controller?.drawIfNeeded()
-        }
+        MainActor.assumeIsolated { stepFlick() }
     }
 
     // MARK: - First responder
@@ -264,23 +271,30 @@ final class TerminalSurfaceView: UIView {
             case .ended, .cancelled, .failed:
                 // A terminal without flick-scroll feels dead next to every
                 // other list on the phone, so the throw carries on and decays
-                // on the display link.
-                flickVelocity = pan.velocity(in: self).y / 60
+                // on a display link that only exists while it is decaying.
+                let perSecond = pan.velocity(in: self).y
+                flickVelocity = perSecond / 120
                 lastPanY = 0
+                if abs(flickVelocity) > 0.5 { startFlickLink() }
             default:
                 break
             }
         }
     }
 
-    /// Bleed off flick momentum, one display-link tick at a time.
+    /// Bleed off flick momentum, one display-link tick at a time, and stop
+    /// the link the moment there is nothing left to do — an idle terminal
+    /// must not hold a 120Hz main-thread timer open.
     private func stepFlick() {
         guard abs(flickVelocity) > 0.5 else {
             flickVelocity = 0
+            stopDisplayLink()
             return
         }
         controller?.scroll(byPixels: flickVelocity)
-        flickVelocity *= 0.94
+        // Tuned against the decay rate iOS lists use: fast enough to settle,
+        // slow enough that a flick actually travels.
+        flickVelocity *= 0.955
     }
 
     /// Raise the software keyboard and give the surface focus.

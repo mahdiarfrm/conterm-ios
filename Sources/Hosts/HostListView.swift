@@ -143,7 +143,12 @@ struct HostListView: View {
             .fileImporter(isPresented: $importing,
                           allowedContentTypes: [.item],
                           allowsMultipleSelection: false) { importConfig($0) }
-            .navigationDestination(item: $session) { TerminalScreen(session: $0) }
+            .navigationDestination(item: $session) { live in
+                TerminalScreen(session: live) { host in
+                    session = nil
+                    openNew(host)
+                }
+            }
             .navigationDestination(item: $agentsFor) { AgentCenterView(host: $0) }
             .navigationDestination(item: $contermOn) { ContermRemoteView(host: $0) }
             .navigationDestination(item: $overview) { host in
@@ -238,7 +243,10 @@ struct HostListView: View {
             if !sessions.live.isEmpty {
                 Section {
                     ForEach(sessions.live) { live in
-                        Button { session = live } label: { SessionRow(session: live) }
+                        Button { session = live } label: {
+                            SessionRow(session: live,
+                                       siblings: sessions.liveCount(for: live.host))
+                        }
                             .buttonStyle(PressableRow())
                             .listRowBackground(Color.clear)
                             .listRowSeparatorTint(Theme.stroke)
@@ -356,6 +364,11 @@ struct HostListView: View {
                 groupPrompt = .newGroup(forHost: host)
             }
         }
+        if sessions.liveCount(for: host) > 0 {
+            Button("Open another shell", systemImage: "plus.rectangle.on.rectangle") {
+                openNew(host)
+            }
+        }
         Button("Edit host", systemImage: "pencil") { route = .editHost(host) }
         Button("Overview", systemImage: "info.circle") { overview = host }
         Button("Agents", systemImage: "sparkles") { agentsFor = host }
@@ -441,6 +454,18 @@ struct HostListView: View {
         }
     }
 
+    /// Always a fresh shell, even if this host already has one.
+    private func openNew(_ host: Host) {
+        guard let credentials = KeyStore.shared.credentials(for: host) else {
+            SoundEffects.shared.play(.error)
+            route = .editHost(host)
+            return
+        }
+        SoundEffects.shared.tap(.connect, haptic: .medium)
+        session = sessions.newSession(for: host, app: app, credentials: credentials)
+        store.noteConnected(host)
+    }
+
     private func open(_ host: Host) {
         guard let credentials = KeyStore.shared.credentials(for: host) else {
             // No secret stored — send them to the editor rather than opening a
@@ -490,6 +515,9 @@ struct HostListView: View {
 /// terminal agree.
 private struct SessionRow: View {
     let session: TerminalSession
+    /// How many live shells this host has, so "#2" only appears when it means
+    /// something.
+    var siblings: Int = 1
 
     var body: some View {
         HStack(spacing: 11) {
@@ -503,6 +531,12 @@ private struct SessionRow: View {
                     .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(1)
+                if siblings > 1 {
+                    Text("#\(session.ordinal)")
+                        .font(.system(size: Theme.ui(10), weight: .bold, design: .monospaced))
+                        .foregroundStyle(Theme.textSecondary)
+                        .monospacedDigit()
+                }
                 Text(subtitle)
                     .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
@@ -551,6 +585,7 @@ private struct SessionRow: View {
 private struct HostRow: View {
     let host: Host
     var group: HostGroup?
+    var liveCount: Int = 0
 
     var body: some View {
         HStack(spacing: 11) {
@@ -573,7 +608,14 @@ private struct HostRow: View {
 
             Spacer(minLength: 8)
 
-            if !hasSecret {
+            if liveCount > 0 {
+                Text(liveCount == 1 ? "open" : "\(liveCount) open")
+                    .font(.system(size: Theme.ui(10), weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.Status.ready)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .glassPill(tone: .dark)
+            } else if !hasSecret {
                 Text("no key")
                     .font(.system(size: Theme.ui(10), weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.warning)

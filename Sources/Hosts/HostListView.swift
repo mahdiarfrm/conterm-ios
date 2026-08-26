@@ -10,20 +10,58 @@ struct HostListView: View {
     @State private var session: TerminalSession?
     @State private var overview: Host?
     @State private var agentsFor: Host?
-    @State private var editing: Host?
-    @State private var creating = false
+    @State private var contermOn: Host?
+    @State private var route: Route?
     @State private var importing = false
-    @State private var quickConnecting = false
+
     @State private var notice: String?
-    @State private var paletteOpen = false
-    @State private var keysOpen = false
-    @State private var settingsOpen = false
+
     @State private var groups = HostGroupStore()
-    /// The host whose long-press asked for a brand-new group.
-    @State private var groupingHost: Host?
-    @State private var renamingGroup: HostGroup?
+    @State private var groupPrompt: GroupPrompt?
     @State private var newGroupName = ""
     private let editingGroups = false
+
+    /// Everything this screen can put on top of itself.
+    enum Route: Identifiable, Hashable {
+        case palette, keys, settings, newHost, quickConnect
+        case editHost(Host)
+
+        var id: String {
+            switch self {
+            case .palette: return "palette"
+            case .keys: return "keys"
+            case .settings: return "settings"
+            case .newHost: return "newHost"
+            case .quickConnect: return "quickConnect"
+            case .editHost(let host): return "edit-\(host.id)"
+            }
+        }
+    }
+
+    /// The two text prompts groups need, as one thing.
+    enum GroupPrompt: Identifiable, Hashable {
+        case newGroup(forHost: Host)
+        case rename(HostGroup)
+
+        var id: String {
+            switch self {
+            case .newGroup(let host): return "new-\(host.id)"
+            case .rename(let group): return "rename-\(group.id)"
+            }
+        }
+        var title: String {
+            switch self {
+            case .newGroup: return "New group"
+            case .rename: return "Rename group"
+            }
+        }
+        var confirmTitle: String {
+            switch self {
+            case .newGroup: return "Create"
+            case .rename: return "Rename"
+            }
+        }
+    }
 
     private var filtered: [Host] {
         let base = store.hosts.sorted {
@@ -52,10 +90,7 @@ struct HostListView: View {
                 // saved — Quick Connect shouldn't strand you on an empty state
                 // while a shell of yours is running behind it.
                 if store.hosts.isEmpty && sessions.live.isEmpty {
-                    EmptyHostsView(creating: $creating,
-                                   importing: $importing,
-                                   quickConnecting: $quickConnecting,
-                                   keysOpen: $keysOpen)
+                    EmptyHostsView(route: $route, importing: $importing)
                 } else {
                     list
                 }
@@ -67,63 +102,50 @@ struct HostListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom) { paletteBar }
-            .sheet(isPresented: $paletteOpen) {
-                CommandPalette(store: store,
-                               onConnect: { open($0) },
-                               onOverview: { overview = $0 },
-                               onNewHost: { creating = true },
-                               onQuickConnect: { quickConnecting = true },
-                               onImport: { importing = true },
-                               onKeys: { keysOpen = true })
+            // One sheet, not six. SwiftUI attaches each `.sheet` modifier to
+            // the same view, and only one of them reliably wins — stacking
+            // them is why the search bar sometimes did nothing when tapped.
+            // A single presentation driven by a route can't race itself.
+            .sheet(item: $route) { route in
+                switch route {
+                case .palette:
+                    CommandPalette(store: store,
+                                   onConnect: { host in self.route = nil; open(host) },
+                                   onOverview: { host in self.route = nil; overview = host },
+                                   onNewHost: { self.route = .newHost },
+                                   onQuickConnect: { self.route = .quickConnect },
+                                   onImport: { self.route = nil; importing = true },
+                                   onKeys: { self.route = .keys })
+                case .keys:
+                    KeyLibraryView()
+                case .settings:
+                    SettingsView()
+                case .newHost:
+                    HostEditorView(store: store, groups: groups)
+                case .editHost(let host):
+                    HostEditorView(store: store, groups: groups, existing: host)
+                case .quickConnect:
+                    QuickConnectView(app: app, store: store) {
+                        SessionStore.shared.adopt($0)
+                        self.route = nil
+                        session = $0
+                    }
+                }
             }
-            .sheet(isPresented: $keysOpen) { KeyLibraryView() }
-            .sheet(isPresented: $settingsOpen) { SettingsView() }
-            .alert("New group", isPresented: Binding(
-                get: { groupingHost != nil },
-                set: { if !$0 { groupingHost = nil; newGroupName = "" } })) {
+            // Same reasoning for the two group prompts: one alert, one route.
+            .alert(groupPrompt?.title ?? "", isPresented: Binding(
+                get: { groupPrompt != nil },
+                set: { if !$0 { groupPrompt = nil; newGroupName = "" } })) {
                 TextField("Name", text: $newGroupName)
-                Button("Cancel", role: .cancel) { groupingHost = nil; newGroupName = "" }
-                Button("Create") {
-                    let name = newGroupName.trimmingCharacters(in: .whitespaces)
-                    guard !name.isEmpty, var host = groupingHost else { return }
-                    host.groupID = groups.create(name: name).id
-                    store.update(host)
-                    groupingHost = nil
-                    newGroupName = ""
-                }
-            }
-            .alert("Rename group", isPresented: Binding(
-                get: { renamingGroup != nil },
-                set: { if !$0 { renamingGroup = nil; newGroupName = "" } })) {
-                TextField("Name", text: $newGroupName)
-                Button("Cancel", role: .cancel) { renamingGroup = nil; newGroupName = "" }
-                Button("Rename") {
-                    let name = newGroupName.trimmingCharacters(in: .whitespaces)
-                    guard !name.isEmpty, var group = renamingGroup else { return }
-                    group.name = name
-                    groups.update(group)
-                    renamingGroup = nil
-                    newGroupName = ""
-                }
-            }
-            .onChange(of: renamingGroup?.id) { _, _ in
-                newGroupName = renamingGroup?.name ?? ""
-            }
-            .sheet(isPresented: $creating) { HostEditorView(store: store, groups: groups) }
-            .sheet(isPresented: $quickConnecting) {
-                QuickConnectView(app: app, store: store) {
-                    SessionStore.shared.adopt($0)
-                    session = $0
-                }
-            }
-            .sheet(item: $editing) { host in
-                HostEditorView(store: store, groups: groups, existing: host)
+                Button("Cancel", role: .cancel) { groupPrompt = nil; newGroupName = "" }
+                Button(groupPrompt?.confirmTitle ?? "OK") { confirmGroupPrompt() }
             }
             .fileImporter(isPresented: $importing,
                           allowedContentTypes: [.item],
                           allowsMultipleSelection: false) { importConfig($0) }
             .navigationDestination(item: $session) { TerminalScreen(session: $0) }
             .navigationDestination(item: $agentsFor) { AgentCenterView(host: $0) }
+            .navigationDestination(item: $contermOn) { ContermRemoteView(host: $0) }
             .navigationDestination(item: $overview) { host in
                 HostOverviewView(host: host) { target in
                     overview = nil
@@ -155,9 +177,9 @@ struct HostListView: View {
                 }
             }
             Spacer(minLength: 8)
-            headerButton("key") { keysOpen = true }
-            headerButton("gearshape") { settingsOpen = true }
-            headerButton("plus") { creating = true }
+            headerButton("key") { route = .keys }
+            headerButton("gearshape") { route = .settings }
+            headerButton("plus") { route = .newHost }
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
@@ -181,7 +203,7 @@ struct HostListView: View {
 
     private var paletteBar: some View {
         Button {
-            paletteOpen = true
+            route = .palette
             Haptics.shared.fire(.light)
         } label: {
             HStack(spacing: 9) {
@@ -195,6 +217,11 @@ struct HostListView: View {
             .padding(.horizontal, 18)
             .frame(height: Theme.ui(50))
             .floatingGlass()
+            // The glass is `.interactive()` on iOS 26, which installs its own
+            // touch handling inside the button's label. Declaring the hit
+            // shape explicitly means the tap is resolved by the button's own
+            // frame rather than by whatever the effect decided its shape was.
+            .contentShape(Capsule(style: .continuous))
             .shadow(color: .black.opacity(0.45), radius: 18, y: 7)
             .padding(.horizontal, 16)
             .padding(.bottom, 10)
@@ -292,7 +319,7 @@ struct HostListView: View {
             .swipeActions(edge: .trailing) {
                 Button("Delete") { store.delete(host) }
                     .tint(Theme.Action.destructive)
-                Button("Edit") { editing = host }
+                Button("Edit") { route = .editHost(host) }
                     .tint(Theme.Action.neutral)
             }
             .contextMenu { groupMenu(for: host) }
@@ -326,12 +353,13 @@ struct HostListView: View {
             }
             Divider()
             Button("New group\u{2026}", systemImage: "folder.badge.plus") {
-                groupingHost = host
+                groupPrompt = .newGroup(forHost: host)
             }
         }
-        Button("Edit host", systemImage: "pencil") { editing = host }
+        Button("Edit host", systemImage: "pencil") { route = .editHost(host) }
         Button("Overview", systemImage: "info.circle") { overview = host }
         Button("Agents", systemImage: "sparkles") { agentsFor = host }
+        Button("Conterm on this Mac", systemImage: "macwindow") { contermOn = host }
     }
 
     private func groupHeader(_ group: HostGroup, count: Int) -> some View {
@@ -365,7 +393,10 @@ struct HostListView: View {
         .listRowBackground(Color.clear)
         .textCase(nil)
         .contextMenu {
-            Button("Rename\u{2026}", systemImage: "pencil") { renamingGroup = group }
+            Button("Rename\u{2026}", systemImage: "pencil") {
+                newGroupName = group.name
+                groupPrompt = .rename(group)
+            }
             Button("Delete group", systemImage: "trash", role: .destructive) {
                 for host in store.hosts where host.groupID == group.id {
                     var updated = host
@@ -395,13 +426,28 @@ struct HostListView: View {
         .textCase(nil)
     }
 
+    private func confirmGroupPrompt() {
+        let name = newGroupName.trimmingCharacters(in: .whitespaces)
+        defer { groupPrompt = nil; newGroupName = "" }
+        guard !name.isEmpty, let prompt = groupPrompt else { return }
+        switch prompt {
+        case .newGroup(let host):
+            var updated = host
+            updated.groupID = groups.create(name: name).id
+            store.update(updated)
+        case .rename(var group):
+            group.name = name
+            groups.update(group)
+        }
+    }
+
     private func open(_ host: Host) {
         guard let credentials = KeyStore.shared.credentials(for: host) else {
             // No secret stored — send them to the editor rather than opening a
             // terminal that can only fail.
             SoundEffects.shared.play(.error)
             Haptics.shared.fire(.warning)
-            editing = host
+            route = .editHost(host)
             return
         }
         SoundEffects.shared.tap(.connect, haptic: .medium)
@@ -553,10 +599,8 @@ private struct HostRow: View {
 }
 
 private struct EmptyHostsView: View {
-    @Binding var creating: Bool
+    @Binding var route: HostListView.Route?
     @Binding var importing: Bool
-    @Binding var quickConnecting: Bool
-    @Binding var keysOpen: Bool
 
     var body: some View {
         VStack(spacing: 14) {
@@ -575,7 +619,7 @@ private struct EmptyHostsView: View {
                 .padding(.horizontal, 32)
                 .rollUp(delay: 0.17)
 
-            Button("Quick Connect") { quickConnecting = true }
+            Button("Quick Connect") { route = .quickConnect }
                 .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
                 .foregroundStyle(Theme.paneTile)
                 .padding(.horizontal, 22)
@@ -585,14 +629,14 @@ private struct EmptyHostsView: View {
                 .rollUp(delay: 0.23)
 
             HStack(spacing: 10) {
-                Button("Add host") { creating = true }
+                Button("Add host") { route = .newHost }
                     .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.accentOnDark)
                     .padding(.horizontal, 18)
                     .frame(height: Theme.hitTarget)
                     .glassPill(tone: .dark)
 
-                Button("Keys") { keysOpen = true }
+                Button("Keys") { route = .keys }
                     .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.accentOnDark)
                     .padding(.horizontal, 18)

@@ -29,9 +29,20 @@ echo "==> host $CONTERM_SSHTEST_USER@$CONTERM_SSHTEST_HOST:$CONTERM_SSHTEST_PORT
 
 # --- build and install ---------------------------------------------------
 if [ "$TARGET" = "device" ]; then
-    UDID="${CONTERM_DEVICE:-$(xcrun devicectl list devices 2>/dev/null \
-        | awk '/connected/ {print $(NF-2); exit}')}"
-    [ -n "$UDID" ] || { echo "no connected device — plug in and unlock it"; exit 1; }
+    # Match the identifier by shape rather than by column: devicectl pads
+    # its table to the widest value, so field positions move.
+    ROW=$(xcrun devicectl list devices 2>/dev/null | grep -E '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}' | head -1)
+    UDID="${CONTERM_DEVICE:-$(echo "$ROW" | grep -oE '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}' | head -1)}"
+    if [ -z "$UDID" ]; then
+        echo "no device paired — plug one in and trust this Mac"; exit 1
+    fi
+    if ! echo "$ROW" | grep -q "connected"; then
+        # The state is the word straight after the identifier.
+        STATE=$(echo "$ROW" | sed -E 's/.*[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}[[:space:]]+([^[:space:]]+).*/\2/')
+        echo "device is \"$STATE\", not connected."
+        echo "unlock the phone and keep it plugged in, then run this again."
+        exit 1
+    fi
     DEST="platform=iOS,id=$UDID"
 else
     UDID="${CONTERM_SIM:-$(xcrun simctl list devices available \

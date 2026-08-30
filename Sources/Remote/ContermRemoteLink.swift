@@ -89,7 +89,7 @@ final class ContermRemoteLink {
             guard let self else { return }
             do {
                 let connection = try await SSHConnectionPool.shared.connection(
-                    for: host, credentials: credentials, policy: .requireKnown)
+                    for: host, credentials: credentials, policy: .ask)
                 self.connection = connection
                 self.holdsConnection = true
 

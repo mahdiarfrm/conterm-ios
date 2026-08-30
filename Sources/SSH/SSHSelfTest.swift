@@ -240,7 +240,11 @@ enum SSHSelfTest {
         // command sent back.
         KnownHostsStore.shared.remember(
             fingerprint: fingerprint, keyType: "ssh-ed25519", for: host.address)
-        await ContermRemoteSelfTest.run(host: host, credentials: credentials)
+        if ProcessInfo.processInfo.environment["CONTERM_SSHTEST_LIVE"] == "1" {
+            await ContermRemoteSelfTest.runLive(host: host, credentials: credentials)
+        } else {
+            await ContermRemoteSelfTest.run(host: host, credentials: credentials)
+        }
 
         KnownHostsStore.shared.forget(host.address)
         await SSHConnectionPool.shared.closeAll()

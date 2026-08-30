@@ -22,6 +22,69 @@ enum ContermRemoteSelfTest {
         say("\(passed ? "PASS" : "FAIL") \(name)\(detail.isEmpty ? "" : " — \(detail)")")
     }
 
+    /// Against a Conterm that is actually running on the far side.
+    ///
+    /// The contract test below writes the payload by hand, which proves the
+    /// wire but not the two apps: a field renamed in `RemoteStatePublisher`
+    /// would sail straight through it. This decodes what the Mac really
+    /// publishes, and — the part nothing else can check — asks the Mac to do
+    /// something and watches the consequence come back in the next snapshot.
+    @MainActor
+    static func runLive(host: Host, credentials: SSHCredentials) async {
+        say("--- live Conterm on the far side ---")
+        let link = ContermRemoteLink(host: host, credentials: credentials)
+        link.start()
+
+        let arrived = await settle(seconds: 20) { link.state != nil }
+        check("real payload decoded", arrived, "\(link.phase)")
+        guard let first = link.state else { link.stop(); return }
+
+        check("windows present", !first.windows.isEmpty,
+              "\(first.windows.count) window(s), \(first.paneCount) panes")
+        // The fields that only exist because the Mac fills them in. A rename
+        // on that side shows up here as a nil rather than as an empty screen
+        // in someone's hand three weeks later.
+        let panes = first.windows.flatMap { $0.tabs.flatMap(\.panes) }
+        check("pane detail carried", panes.contains { $0.cwd != nil },
+              panes.first?.dirLabel ?? "no dirLabel")
+        let agents = panes.filter { $0.agentPhase != nil }
+        say("INFO agents seen: \(agents.count) — "
+          + agents.prefix(3).map { "\($0.agentPhase ?? "?"):\($0.agentLabel ?? "?")" }
+              .joined(separator: ", "))
+
+        // Ask for a new tab and watch the Mac's own next snapshot grow one.
+        // This is the whole loop: phone → inbox → AppKit → publish → phone.
+        let before = first.windows.first?.tabs.count ?? 0
+        let asked = Date()
+        await link.send(.init(action: .newTab, windowIndex: 1))
+        let grew = await settle(seconds: 15) {
+            (link.state?.windows.first?.tabs.count ?? 0) == before + 1
+        }
+        check("newTab round trip", grew,
+              String(format: "%d → %d in %.0fms", before,
+                     link.state?.windows.first?.tabs.count ?? -1,
+                     Date().timeIntervalSince(asked) * 1000))
+
+        // And focus: pick a tab that isn't selected, ask for one of its panes,
+        // and wait for the Mac to report it selected.
+        if let target = link.state?.windows.first?.tabs
+            .first(where: { !$0.isSelected })?.panes.first {
+            let asked = Date()
+            await link.send(.init(action: .focusPane, paneID: target.id))
+            let focused = await settle(seconds: 15) {
+                link.state?.windows.flatMap { $0.tabs }
+                    .first { $0.panes.contains { $0.id == target.id } }?.isSelected == true
+            }
+            check("focusPane round trip", focused,
+                  String(format: "%.0fms", Date().timeIntervalSince(asked) * 1000))
+        } else {
+            say("INFO no unselected tab to focus")
+        }
+
+        link.stop()
+        say("--- live done ---")
+    }
+
     @MainActor
     static func run(host: Host, credentials: SSHCredentials) async {
         say("--- Conterm remote link ---")

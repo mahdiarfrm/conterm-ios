@@ -84,7 +84,8 @@ struct AgentCenterView: View {
             return
         }
         let model = RemoteAgentCenter(address: host.address,
-                                      runner: SSHCommandRunner(host: host, credentials: credentials))
+                                      runner: SSHCommandRunner(host: host, credentials: credentials,
+                                                               policy: .ask))
         center = model
         model.start()
     }

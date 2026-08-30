@@ -10,10 +10,11 @@ import Foundation
 /// second and every subsequent command costs a round trip rather than a
 /// handshake.
 ///
-/// The trust policy is `requireKnown` on purpose: none of these callers is a
-/// gesture the user just made, and a fingerprint prompt that appears on its
-/// own, during a background refresh, is a prompt people learn to tap through.
-/// Trust is established by opening a terminal, deliberately, once.
+/// The trust policy defaults to `requireKnown` so that a future background
+/// caller cannot start prompting by accident; the screens that are opened by
+/// a tap pass `.ask` explicitly. The line being drawn is attribution: a
+/// fingerprint prompt must be traceable to something the user just did, or it
+/// becomes a prompt people learn to tap through.
 struct SSHCommandRunner: HostCommandRunner {
     private let host: Host
     private let credentials: SSHCredentials

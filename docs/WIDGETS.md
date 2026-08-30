@@ -29,25 +29,27 @@ The faces live in `Shared/` so the app renders exactly what the extension
 does. Widget design is otherwise: change a number, build, install, remove
 the widget from the home screen, add it back, squint.
 
-## The one thing left: App Groups
+## The look
 
-The extension cannot read the app's container. Sharing needs an App Group,
-and the capability has to exist on the App ID before a profile can carry it —
-which `xcodebuild` cannot do. Until then `ContermSnapshotStore` falls back to
-the app's own container, so the app writes happily and widgets on the home
-screen show their placeholder.
+It is a terminal, not a card about one. Monospaced throughout, a prompt on
+the first line, and status as a *character* in the text flow — `●` up, `◌`
+connecting, `○` closed, `✕` failed — rather than a dot placed beside it.
+No border, no gradient, no colour except on those glyphs.
 
-To turn it on, once, in Xcode:
+The first attempt was a rounded card with a grey stroke, a rainbow hairline
+and rounded-sans type. That is every developer-tool widget ever made, and it
+broke rules this project had already written down: `GLASS-REDESIGN.md` lists
+coloured ambient backdrops under **dead ends**, and `NodeCard.swift` rejected
+a bright ring because it "read as neon paint".
 
-1. Open `Conterm.xcodeproj`.
-2. Target **Conterm** → Signing & Capabilities → **+ Capability** → App Groups.
-3. Add `group.dev.conterm.ios`.
-4. Repeat for the **ContermWidget** target, same group.
+Small does not try to be a small Medium. A name-and-time column truncates to
+`sibche-p…` at 170pt, so the fleet is a row of glyphs — `●●◌●` — which says
+how many and what shape they are in, and cannot truncate.
 
-`Resources/Conterm.entitlements` and `Resources/ContermWidget.entitlements`
-are already written with the right contents; step 2 is what registers the
-capability with the developer account, and Xcode will wire them up. Requires
-a paid developer account — App Groups are not available to a free personal
-team.
+## App Groups
 
-The gallery says which state you are in, at the top.
+Live. `group.dev.conterm.ios` is on both targets and in the signed
+entitlements. Registering it needed Xcode to be logged in to the developer
+account — writing the entitlement is not enough on its own, because the
+provisioning profile only regenerates when Xcode can reach Apple. If it ever
+breaks again, that is the thing to check first.

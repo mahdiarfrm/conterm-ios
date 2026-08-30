@@ -90,6 +90,13 @@ enum AgentCollector {
             .joined(separator: "\n")
         return """
         printf '\(marker)\\n'
+        # zsh treats an unmatched glob as a hard error and prints "no matches
+        # found" rather than leaving the pattern alone the way bash does — and
+        # these scripts are handed to the login shell, which on macOS and on more
+        # and more Linux boxes is zsh. An agent directory with no transcripts in
+        # it was enough to derail the walk. Bash never enters the branch, so it
+        # never sees a command it does not have.
+        [ -n "$ZSH_VERSION" ] && setopt no_nomatch 2>/dev/null
         root="$HOME/.claude/projects"
         [ -d "$root" ] || exit 0
 
@@ -208,6 +215,13 @@ enum AgentCollector {
 
         return """
         printf '\(marker)\\n'
+        # zsh treats an unmatched glob as a hard error and prints "no matches
+        # found" rather than leaving the pattern alone the way bash does — and
+        # these scripts are handed to the login shell, which on macOS and on more
+        # and more Linux boxes is zsh. An agent directory with no transcripts in
+        # it was enough to derail the walk. Bash never enters the branch, so it
+        # never sees a command it does not have.
+        [ -n "$ZSH_VERSION" ] && setopt no_nomatch 2>/dev/null
         root="$HOME/.claude/projects"
         [ -d "$root" ] || exit 0
 

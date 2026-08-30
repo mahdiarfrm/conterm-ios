@@ -132,6 +132,32 @@ enum SSHSelfTest {
             check("host probe collector runs", false, "\(error)")
         }
 
+        // 3c. Agent Center's collector. It reads Claude Code's transcripts
+        //     on the *far* machine, which is the whole point — you check
+        //     your phone precisely because you are not at that machine.
+        do {
+            let started = Date()
+            let script = AgentCollector.summaryScript(knownTasks: [])
+            let result = try await connection.exec(script, timeout: .seconds(40))
+            // Records are tab-separated with a one-letter key; `c` is the
+            // working directory, so one per agent found.
+            let sessions = result.output.split(separator: "\n")
+                .filter { $0.hasPrefix("c\t") }.count
+            check("agent collector runs", result.output.contains("==="),
+                  String(format: "%d sessions, %d bytes in %.1fs",
+                         sessions, result.output.count,
+                         Date().timeIntervalSince(started)))
+            say("     collector said: "
+                + result.output.replacingOccurrences(of: "\n", with: " ⏎ ").prefix(400))
+            // A collector that works but complains is a collector that is
+            // about to stop working on someone else's shell.
+            check("agent collector is quiet", result.errorOutput.isEmpty,
+                  result.errorOutput.replacingOccurrences(of: "\n", with: " ⏎ ").prefix(200)
+                      .description)
+        } catch {
+            check("agent collector runs", false, "\(error)")
+        }
+
         // 4. A shell with a pty, and the round trip through it.
         let received = Received()
         do {

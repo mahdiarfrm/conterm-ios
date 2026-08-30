@@ -1,0 +1,10 @@
+Port 2222
+ListenAddress 127.0.0.1
+HostKey /Users/mahdiar/Documents/conterm-ios/.test-host/hostkey
+PidFile /Users/mahdiar/Documents/conterm-ios/.test-host/sshd.pid
+AuthorizedKeysFile /Users/mahdiar/Documents/conterm-ios/.test-host/authorized_keys
+StrictModes no
+UsePAM no
+PasswordAuthentication no
+PubkeyAuthentication yes
+LogLevel INFO

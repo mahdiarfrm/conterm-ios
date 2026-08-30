@@ -460,18 +460,22 @@ actor SSHConnection {
         if closed { return .finished }
         if busy { return .busy }
 
-        let directions = libssh2_session_block_directions(session)
-        var events: Int16 = 0
-        if directions & LIBSSH2_SESSION_BLOCK_INBOUND != 0 || directions == 0 {
-            events |= Int16(POLLIN)
-        }
-        if directions & LIBSSH2_SESSION_BLOCK_OUTBOUND != 0 {
+        // POLLIN unconditionally: libssh2 reporting that it wants to *write*
+        // says nothing about whether the far end is about to speak, and not
+        // watching for that is a way to sleep through an answer.
+        var events = Int16(POLLIN)
+        if libssh2_session_block_directions(session) & LIBSSH2_SESSION_BLOCK_OUTBOUND != 0 {
             events |= Int16(POLLOUT)
         }
-        // The timeout only has to be short enough to service keepalives and
-        // command deadlines; the self-pipe covers everything urgent.
+
+        // Anything still queued means the last write hit a full channel
+        // window, and the thing that opens it again may or may not arrive as
+        // readable data. Rather than reason about which, don't sleep long
+        // while there is work in hand: the difference between a stalled
+        // keystroke costing 20ms and costing a full second.
+        let waiting = channels.values.contains { !$0.outbound.isEmpty || $0.eofAt != nil }
         return .idle(PollParams(fd: socket, gate: gate,
-                                events: events, timeoutMS: 1000))
+                                events: events, timeoutMS: waiting ? 20 : 1000))
     }
 
     /// Waits off the actor. Returns true if the socket itself died.
@@ -821,8 +825,6 @@ actor SSHConnection {
 private final class WakeGate: @unchecked Sendable {
     let readFD: Int32
     private let writeFD: Int32
-    private let lock = NSLock()
-    private var armed = false
 
     init() {
         var fds: [Int32] = [-1, -1]
@@ -842,19 +844,23 @@ private final class WakeGate: @unchecked Sendable {
     }
 
     func poke() {
-        lock.lock()
-        let needed = !armed
-        armed = true
-        lock.unlock()
-        guard needed, writeFD >= 0 else { return }
+        guard writeFD >= 0 else { return }
         var byte: UInt8 = 1
+        // Unconditional, and a failed write is fine. The only reason it can
+        // fail is a full pipe, and a full pipe is itself a wakeup already
+        // pending — so the wake is never lost either way. Trying to be
+        // cleverer than this, by tracking whether a poke was outstanding,
+        // opened a window where a poke could decline to write while the pipe
+        // was empty: one keystroke in sixty waited out the poll timeout.
         _ = Darwin.write(writeFD, &byte, 1)
     }
 
+    /// Empty the pipe. Called after every poll, whatever woke it.
+    ///
+    /// Draining only when the gate was the reason poll returned leaves bytes
+    /// behind, which is harmless for correctness but makes every subsequent
+    /// poll return instantly — a busy loop dressed as a wakeup.
     func drain() {
-        lock.lock()
-        armed = false
-        lock.unlock()
         guard readFD >= 0 else { return }
         var scratch = [UInt8](repeating: 0, count: 64)
         while true {

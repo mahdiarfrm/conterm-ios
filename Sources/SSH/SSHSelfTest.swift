@@ -30,16 +30,22 @@ enum SSHSelfTest {
 
     @MainActor
     static func run(app: Ghostty.App? = nil) async {
+        // On the simulator the key can be a path, because the app shares the
+        // Mac's filesystem. On a device it cannot, so the text travels in the
+        // environment instead.
+        let keyFromPath = env("KEY").flatMap {
+            try? String(contentsOfFile: $0, encoding: .utf8)
+        }
         guard let hostname = env("HOST"),
               let user = env("USER"),
-              let keyPath = env("KEY"),
-              let privateKey = try? String(contentsOfFile: keyPath, encoding: .utf8)
+              let privateKey = env("KEY_TEXT") ?? keyFromPath
         else {
-            say("FAIL setup — need _HOST, _USER and a readable _KEY")
+            say("FAIL setup — need _HOST, _USER and either _KEY or _KEY_TEXT")
             return
         }
         let port = Int(env("PORT") ?? "22") ?? 22
-        let publicKey = try? String(contentsOfFile: keyPath + ".pub", encoding: .utf8)
+        let publicKey = env("PUB_TEXT")
+            ?? env("KEY").flatMap { try? String(contentsOfFile: $0 + ".pub", encoding: .utf8) }
 
         var host = Host(alias: "selftest", hostname: hostname, port: port,
                         username: user, auth: .privateKey)
@@ -172,6 +178,15 @@ enum SSHSelfTest {
                     Task { await echoed.append(data, at: at) }
                 },
                 onClosed: { _ in })
+
+            // One throwaway round trip first. The first write on a freshly
+            // opened channel pays for the channel window opening and the far
+            // process starting, which is real but is not what this measures —
+            // it showed up as a lone 20-150ms outlier in first position and
+            // never anywhere else.
+            await echoed.expect("warmup", occurrences: 1)
+            await connection.write(Data("warmup\n".utf8), to: channel)
+            _ = await echoed.arrival(seconds: 5)
 
             var samples: [Double] = []
             for i in 0..<20 {

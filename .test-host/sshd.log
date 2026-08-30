@@ -1,0 +1,247 @@
+Server listening on 127.0.0.1 port 2222.
+Received disconnect from 127.0.0.1 port 58042:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58042 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58043 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58043:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58043
+Received disconnect from 127.0.0.1 port 58050:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58050 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58051 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58051:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58051
+Received signal 15; terminating.
+Server listening on 127.0.0.1 port 2222.
+Accepted publickey for mahdiar from 127.0.0.1 port 58614 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Received disconnect from 127.0.0.1 port 58614:11: disconnected by user
+Disconnected from user mahdiar 127.0.0.1 port 58614
+Received disconnect from 127.0.0.1 port 58664:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58664 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58665 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58665:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58665
+Received disconnect from 127.0.0.1 port 58681:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58681 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58682 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58682:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58682
+Received disconnect from 127.0.0.1 port 58798:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58798 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58799 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58799:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58799
+Received disconnect from 127.0.0.1 port 58800:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58800 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58801 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58801:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58801
+Received disconnect from 127.0.0.1 port 58853:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58853 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58854 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58854:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58854
+Received disconnect from 127.0.0.1 port 58857:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58857 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58858 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58858:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58858
+Received disconnect from 127.0.0.1 port 58872:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58872 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58873 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58873:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58873
+Received disconnect from 127.0.0.1 port 58874:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58874 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58875 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58875:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58875
+Received disconnect from 127.0.0.1 port 58888:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58888 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58889 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58889:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58889
+Received disconnect from 127.0.0.1 port 58892:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58892 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58893 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58893:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58893
+Received disconnect from 127.0.0.1 port 58971:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58971 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58972 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58972:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58972
+Received disconnect from 127.0.0.1 port 58975:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58975 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 58976 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 58976:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 58976
+Received disconnect from 127.0.0.1 port 58999:11: bye [preauth]
+Disconnected from 127.0.0.1 port 58999 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59000 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59000:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59000
+Received disconnect from 127.0.0.1 port 59001:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59001 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59002 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59002:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59002
+Received disconnect from 127.0.0.1 port 59024:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59024 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59025 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59025:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59025
+Received disconnect from 127.0.0.1 port 59026:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59026 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59027 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59027:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59027
+Received disconnect from 127.0.0.1 port 59045:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59045 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59046 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59046:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59046
+Received disconnect from 127.0.0.1 port 59049:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59049 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59050 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59050:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59050
+Received disconnect from 127.0.0.1 port 59191:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59191 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59192 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59192:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59192
+Received disconnect from 127.0.0.1 port 59195:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59195 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59196 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59196:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59196
+Received disconnect from 127.0.0.1 port 59227:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59227 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59228 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59228:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59228
+Received disconnect from 127.0.0.1 port 59229:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59229 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59230 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59230:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59230
+Received disconnect from 127.0.0.1 port 59249:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59249 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59250 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59250:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59250
+Received disconnect from 127.0.0.1 port 59255:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59255 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59256 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59256:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59256
+Received disconnect from 127.0.0.1 port 59275:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59275 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59276 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59276:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59276
+Received disconnect from 127.0.0.1 port 59282:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59282 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59283 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59283:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59283
+Received disconnect from 127.0.0.1 port 59297:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59297 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59298 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59298:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59298
+Received disconnect from 127.0.0.1 port 59299:11: bye [preauth]
+Disconnected from 127.0.0.1 port 59299 [preauth]
+Accepted publickey for mahdiar from 127.0.0.1 port 59300 ssh2: ED25519 SHA256:F1u4LTU2s0wI4rRjXedwA74Bksf54+DH8gTZIt9+qsU
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+Attempt to write login records by non-root user (aborting)
+Attempt to write login records by non-root user (aborting)
+Received disconnect from 127.0.0.1 port 59300:11: bye
+Disconnected from user mahdiar 127.0.0.1 port 59300

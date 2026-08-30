@@ -107,8 +107,8 @@ kill $RUNNER 2>/dev/null
 grep -E "CONTERM-(SSHTEST|TERMTEST)" "$LOG" \
     | sed -E 's/.*CONTERM-(SSHTEST|TERMTEST) //' || true
 
-PASSED=$(grep -c "PASS " "$LOG" 2>/dev/null || echo 0)
-FAILED=$(grep -c "FAIL " "$LOG" 2>/dev/null || echo 0)
+PASSED=$(grep -c "PASS " "$LOG" 2>/dev/null | head -1); PASSED=${PASSED:-0}
+FAILED=$(grep -c "FAIL " "$LOG" 2>/dev/null | head -1); FAILED=${FAILED:-0}
 echo
 echo "==> $PASSED passed, $FAILED failed   (full log: $LOG)"
 [ "$FAILED" -eq 0 ]

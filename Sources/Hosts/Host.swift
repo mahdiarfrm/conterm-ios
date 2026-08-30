@@ -144,5 +144,8 @@ final class HostStore {
     private func save() {
         guard let data = try? JSONEncoder().encode(hosts) else { return }
         try? data.write(to: url, options: .atomic)
+        // The host count is on every widget face, so it travels with the
+        // list rather than waiting for a session to change.
+        WidgetBridge.refresh()
     }
 }

@@ -70,6 +70,11 @@ final class GhosttyRuntime {
         // dead for an hour.
         if phase == .active {
             Task { await SSHConnectionPool.shared.pruneDead() }
+            // Also on the way in, not only on the way out. Everything else
+            // that publishes is a *change* to a session, so a cold launch
+            // with nothing running never wrote at all — and "nothing
+            // running, 9 hosts" is a thing a widget should be able to say.
+            WidgetBridge.refresh()
         }
         // Leaving the app is exactly when the home screen is about to be
         // looked at, so the snapshot goes out now rather than on a timer.

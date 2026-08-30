@@ -50,6 +50,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		557FC5283044A6E40048818B /* Conterm.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Conterm.entitlements; sourceTree = "<group>"; };
+		557FC5293044A75C0048818B /* ContermWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ContermWidget.entitlements; sourceTree = "<group>"; };
 		B1000001000000000000001 /* Conterm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Conterm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1000001000000000000002 /* ContermTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ContermTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1000001000000000000003 /* ContermWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ContermWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -118,6 +120,8 @@
 		B1000005000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				557FC5293044A75C0048818B /* ContermWidget.entitlements */,
+				557FC5283044A6E40048818B /* Conterm.entitlements */,
 				B1000003000000000000001 /* Sources */,
 				B1000003000000000000002 /* Tests */,
 				B1000003000000000000003 /* Widget */,
@@ -324,6 +328,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Conterm.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9W7EUWX57Z;
@@ -359,6 +364,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Conterm.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9W7EUWX57Z;
@@ -423,6 +429,7 @@
 		B100000C000000000000007 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ContermWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9W7EUWX57Z;
@@ -449,6 +456,7 @@
 		B100000C000000000000008 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ContermWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9W7EUWX57Z;

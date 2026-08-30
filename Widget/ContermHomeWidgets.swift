@@ -36,18 +36,42 @@ struct SnapshotProvider: TimelineProvider {
 struct ContermStatusWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "dev.conterm.ios.status", provider: SnapshotProvider()) { entry in
-            // The background is chosen per family inside the router. An
-            // opaque one on an accessory family is what made the lock screen
-            // widgets vanish: those render vibrant, where a near-black fill
-            // maps to nothing at all.
+            // `containerBackground` has to sit on the view this closure
+            // returns. Applied deeper — inside the router's switch — WidgetKit
+            // does not find it, falls back to its own material, and the
+            // terminal is drawn as a smaller square floating in the middle of
+            // a grey one. The fill still varies by family, so it varies inside
+            // the builder rather than by moving the modifier.
             ContermFaceRouter(snapshot: entry.snapshot)
+                .containerBackground(for: .widget) { FamilyGround() }
         }
         .configurationDisplayName("Conterm")
         .description("Live sessions, and anything waiting on you.")
+        // The other half of the same problem. iOS 17 insets widget content by
+        // a default margin, which on a full-bleed design is a border of
+        // whatever is behind it. These faces do their own padding.
+        .contentMarginsDisabled()
         .supportedFamilies([
             .systemSmall, .systemMedium, .systemLarge,
             .accessoryCircular, .accessoryRectangular, .accessoryInline,
         ])
+    }
+}
+
+/// The ground, which differs by family: the terminal for the system sizes,
+/// nothing at all for the accessory ones — those render as a tinted stencil
+/// over the wallpaper, where an opaque near-black fill maps to nothing and
+/// the widget reads as missing.
+struct FamilyGround: View {
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        switch family {
+        case .accessoryCircular, .accessoryRectangular, .accessoryInline:
+            Color.clear
+        default:
+            CT.bed
+        }
     }
 }
 
@@ -58,26 +82,13 @@ struct ContermFaceRouter: View {
 
     var body: some View {
         switch family {
-        case .systemSmall:
-            SmallFace(snapshot: snapshot).containerBackground(for: .widget) { CT.bed }
-        case .systemMedium:
-            MediumFace(snapshot: snapshot).containerBackground(for: .widget) { CT.bed }
-        case .systemLarge, .systemExtraLarge:
-            LargeFace(snapshot: snapshot).containerBackground(for: .widget) { CT.bed }
-
-        // Accessory families draw themselves as a tinted stencil over the
-        // wallpaper. They must not carry a fill of their own: the circular
-        // one asks the system for its own backdrop, and the other two have
-        // none at all.
-        case .accessoryCircular:
-            CircularFace(snapshot: snapshot).containerBackground(.clear, for: .widget)
-        case .accessoryRectangular:
-            RectangularFace(snapshot: snapshot).containerBackground(.clear, for: .widget)
-        case .accessoryInline:
-            InlineFace(snapshot: snapshot).containerBackground(.clear, for: .widget)
-
-        @unknown default:
-            SmallFace(snapshot: snapshot).containerBackground(for: .widget) { CT.bed }
+        case .systemSmall: SmallFace(snapshot: snapshot)
+        case .systemMedium: MediumFace(snapshot: snapshot)
+        case .systemLarge, .systemExtraLarge: LargeFace(snapshot: snapshot)
+        case .accessoryCircular: CircularFace(snapshot: snapshot)
+        case .accessoryRectangular: RectangularFace(snapshot: snapshot)
+        case .accessoryInline: InlineFace(snapshot: snapshot)
+        @unknown default: SmallFace(snapshot: snapshot)
         }
     }
 }

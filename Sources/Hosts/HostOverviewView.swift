@@ -15,6 +15,10 @@ struct HostOverviewView: View {
 
     @State private var showingAgents = false
 
+    /// Injected for previews and for the design harness; nil builds one from
+    /// stored credentials.
+    var injected: HostProbeModel?
+
     @State private var probe: HostProbeModel?
     @State private var failure: String?
 
@@ -98,6 +102,7 @@ struct HostOverviewView: View {
 
     private func start() {
         guard probe == nil, failure == nil else { return }
+        if let injected { probe = injected; return }
         guard let credentials = KeyStore.shared.credentials(for: host) else {
             failure = "This host has no saved password or key yet."
             return
@@ -109,43 +114,118 @@ struct HostOverviewView: View {
 
     // MARK: - Header
 
+    /// The hero.
+    ///
+    /// This screen answers "is that box OK", and the answer used to be spread
+    /// across four typographic bands you had to read in order. It now lands in
+    /// one panel: the machine's name against a wash of the brand red, the
+    /// health gem, and the three numbers that decide the answer — load, memory,
+    /// disk — as big readouts with meters under them. The bands below are the
+    /// detail you go looking for once the panel has told you whether to.
     private var header: some View {
         let health = currentHealth
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 9) {
+        // The probe carries its payload in the phase, not as a field.
+        let info: HostInfo? = {
+            guard case .loaded(let loaded)? = probe?.phase else { return nil }
+            return loaded
+        }()
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 11) {
                 HealthGem(health: health)
-                Text(headline)
-                    .font(.system(size: Theme.ui(21), weight: .bold, design: .rounded))
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .padding(.top, 5)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(headline)
+                        .font(.system(size: Theme.ui(22), weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Text(subheadline)
+                        .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(2)
+                }
                 Spacer(minLength: 6)
                 if probe?.refreshing == true {
                     ProgressView().controlSize(.small).tint(Theme.sshAccent)
                 }
             }
 
-            Text(subheadline)
-                .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
-                .foregroundStyle(Theme.textSecondary)
-                .lineLimit(2)
+            if let info { vitals(info).padding(.top, 16) }
 
-            // Alerts as chips, not as a `·`-joined run-on. The whole point of
-            // this screen is that a problem should be countable at a glance,
-            // and a sentence is not countable.
             if !alerts.isEmpty {
                 FlowChips(alerts.map { ($0.1, $0.0.color) })
-                    .padding(.top, 2)
+                    .padding(.top, 14)
             }
 
             if let stamp = ageStamp {
                 Text(stamp)
                     .font(.system(size: Theme.ui(10), weight: .medium, design: .rounded))
-                    .foregroundStyle(Theme.textSecondary.opacity(0.75))
+                    .foregroundStyle(Theme.textSecondary.opacity(0.7))
                     .monospacedDigit()
+                    .padding(.top, 10)
             }
         }
-        .padding(.bottom, 14)
+        .padding(18)
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Theme.paneTile)
+                // The house wash, the same family the launch overlay and the
+                // widgets use. Kept faint: it is the only colour here that
+                // does not mean something.
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(RadialGradient(
+                        colors: [Color(red: 1.00, green: 0.22, blue: 0.24).opacity(0.13),
+                                 Color(red: 0.80, green: 0.10, blue: 0.16).opacity(0.05),
+                                 .clear],
+                        center: UnitPoint(x: 0.95, y: -0.05),
+                        startRadius: 0, endRadius: 320))
+            }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.04)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 0.5)
+                .blendMode(.plusLighter)
+        }
+        .padding(.bottom, 18)
+    }
+
+    /// Load, memory and disk as three readouts on one row.
+    ///
+    /// Deliberately the same three every time, in the same places, present or
+    /// not — a panel whose columns move depending on what the host reported is
+    /// one you have to read rather than glance at.
+    @ViewBuilder
+    private func vitals(_ info: HostInfo) -> some View {
+        let memory: Double? = {
+            guard let total = info.memTotalMB, let avail = info.memAvailMB, total > 0
+            else { return nil }
+            return Double(total - avail) / Double(total)
+        }()
+        let worstDisk = info.disks.max { $0.pct < $1.pct }
+
+        HStack(alignment: .top, spacing: 10) {
+            Vital(label: "Load",
+                  value: info.loadAvg.map { String(format: "%.2f", $0.0) } ?? "—",
+                  detail: info.cores.map { "\($0) cores" },
+                  fraction: info.loadAvg.flatMap { load in
+                      info.cores.map { min(load.0 / Double(max($0, 1)), 1) }
+                  },
+                  overload: HostHealth.overloaded(info))
+            Vital(label: "Memory",
+                  value: memory.map { "\(Int($0 * 100))%" } ?? "—",
+                  detail: info.memTotalMB.map { fmtMB($0) },
+                  fraction: memory,
+                  overload: false)
+            Vital(label: "Disk",
+                  value: worstDisk.map { "\(Int($0.pct * 100))%" } ?? "—",
+                  detail: worstDisk?.mount,
+                  fraction: worstDisk?.pct,
+                  overload: false)
+        }
     }
 
     private var alerts: [(HostHealth, String)] {
@@ -348,14 +428,22 @@ private struct Band<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .font(.system(size: Theme.ui(10), weight: .semibold, design: .rounded))
-                .tracking(0.6)
-                .foregroundStyle(Theme.textSecondary.opacity(0.8))
-            Rectangle()
-                .fill(Theme.stroke)
-                .frame(height: 1)
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 7) {
+                // A short brand tick instead of a full-width rule above the
+                // title. The rule separated bands; this one names them.
+                Capsule()
+                    .fill(LinearGradient(
+                        colors: [Color(red: 1.00, green: 0.22, blue: 0.24),
+                                 Color(red: 1.00, green: 0.42, blue: 0.34)],
+                        startPoint: .top, endPoint: .bottom))
+                    .frame(width: 2.5, height: Theme.ui(11))
+                Text(title.uppercased())
+                    .font(.system(size: Theme.ui(10), weight: .bold))
+                    .tracking(1.0)
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer(minLength: 0)
+            }
             content
         }
         .padding(.vertical, 12)
@@ -420,6 +508,57 @@ private struct Row: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// One headline number with a bar under it. Three of these are the whole
+/// answer to "is that box OK".
+private struct Vital: View {
+    let label: String
+    let value: String
+    var detail: String?
+    var fraction: Double?
+    var overload: Bool
+
+    private var tint: Color {
+        if overload { return Theme.Status.danger }
+        guard let fraction else { return Theme.textSecondary }
+        if fraction > 0.9 { return Theme.Status.danger }
+        if fraction > 0.8 { return Theme.warning }
+        return Theme.sshAccent
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label.uppercased())
+                .font(.system(size: Theme.ui(9), weight: .bold))
+                .tracking(0.9)
+                .foregroundStyle(Theme.textSecondary.opacity(0.8))
+            Text(value)
+                .font(.system(size: Theme.ui(21), weight: .semibold, design: .rounded))
+                .foregroundStyle(fraction == nil ? Theme.textSecondary : Theme.textPrimary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Capsule()
+                .fill(Theme.stroke)
+                .frame(height: 3)
+                .overlay(alignment: .leading) {
+                    GeometryReader { geo in
+                        Capsule()
+                            .fill(LinearGradient(colors: [tint.opacity(0.65), tint],
+                                                 startPoint: .leading, endPoint: .trailing))
+                            .frame(width: max(3, geo.size.width * min(max(fraction ?? 0, 0), 1)))
+                            .shadow(color: tint.opacity(0.55), radius: 3)
+                    }
+                }
+            Text(detail ?? " ")
+                .font(.system(size: Theme.ui(9.5), weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.textSecondary.opacity(0.8))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

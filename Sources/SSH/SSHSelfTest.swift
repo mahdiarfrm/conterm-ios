@@ -116,6 +116,22 @@ enum SSHSelfTest {
             check("exec", false, "\(error)")
         }
 
+        // 3b. The host probe's real collector, through the real path.
+        //     It is 3KB of shell handed to `exec` as a command argument,
+        //     where the Mac app pipes the same script to `ssh host sh` on
+        //     stdin — a difference worth a check rather than an assumption.
+        do {
+            let started = Date()
+            let result = try await connection.exec(HostProbeModel.collector,
+                                                   timeout: .seconds(30))
+            let ok = result.output.contains("===conterm:hostname===")
+            check("host probe collector runs", ok,
+                  String(format: "%d bytes in %.1fs", result.output.count,
+                         Date().timeIntervalSince(started)))
+        } catch {
+            check("host probe collector runs", false, "\(error)")
+        }
+
         // 4. A shell with a pty, and the round trip through it.
         let received = Received()
         do {

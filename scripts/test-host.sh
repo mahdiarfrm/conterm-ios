@@ -90,6 +90,7 @@ env)
     echo "export CONTERM_SSHTEST_PORT=$PORT"
     echo "export CONTERM_SSHTEST_USER=$USER"
     echo "export CONTERM_SSHTEST_KEY=$DIR/clientkey"
+    echo "export CONTERM_SSHTEST_FINGERPRINT=$(ssh-keygen -lf "$DIR/hostkey.pub" | awk '{print $2}')"
     ;;
 
 check)

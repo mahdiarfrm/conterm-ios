@@ -38,7 +38,7 @@ struct SmallFace: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            CT.Mark(size: 12)
+            CT.Logo(height: 11)
             Spacer(minLength: 0)
             if let top = snapshot.ranked.first {
                 Image(systemName: CT.symbol(top.kind))
@@ -117,7 +117,7 @@ struct MediumFace: View {
             CT.Ground()
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
-                    CT.Mark(size: 13)
+                    CT.Logo(height: 13)
                     Spacer(minLength: 0)
                     CT.Chip {
                         Text("\(snapshot.live.count) live")
@@ -175,7 +175,7 @@ struct LargeFace: View {
             CT.Ground()
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
-                    CT.Mark(size: 16)
+                    CT.Logo(height: 16)
                     Spacer(minLength: 0)
                     CT.Chip {
                         Text("\(snapshot.live.count) live · \(snapshot.hostCount) hosts")

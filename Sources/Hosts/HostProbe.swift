@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// The container CLI a host answered with — the one that listed its
 /// containers, and therefore the one that may act on them.
@@ -126,8 +127,14 @@ struct HostAddress: Hashable, Sendable {
 /// Fetches and parses the overview for one host. The collector is a single
 /// POSIX-sh script sent in one round trip, every probe individually guarded
 /// so a missing tool yields an empty section instead of a failure.
+/// `@Observable`, not `ObservableObject`. The view holds this in `@State`,
+/// and SwiftUI does not watch an `ObservableObject`'s publishers through
+/// `@State` — so the probe finished, the phase changed, and the screen sat on
+/// "Asking…" forever. It affected every host, not just the one this was found
+/// against.
+@Observable
 @MainActor
-final class HostProbeModel: ObservableObject {
+final class HostProbeModel {
     enum Phase {
         case loading
         case loaded(HostInfo)
@@ -135,10 +142,10 @@ final class HostProbeModel: ObservableObject {
     }
 
     let address: HostAddress
-    @Published private(set) var phase: Phase = .loading
-    @Published private(set) var fetchedAt: Date?
+    private(set) var phase: Phase = .loading
+    private(set) var fetchedAt: Date?
     /// True while a probe runs behind an already-shown snapshot.
-    @Published private(set) var refreshing = false
+    private(set) var refreshing = false
 
     private let runner: any HostCommandRunner
     private var generation = 0
@@ -208,7 +215,7 @@ final class HostProbeModel: ObservableObject {
     /// Marker-delimited so one stream carries every section. Each probe
     /// is guarded and `|| true`'d — the script must exit 0 on any box
     /// that has a POSIX sh, Linux or not.
-    nonisolated private static let collector = #"""
+    nonisolated static let collector = #"""
     put() { printf '\n===conterm:%s===\n' "$1"; }
     put hostname; hostname 2>/dev/null || true
     put fqdn; hostname -f 2>/dev/null || true

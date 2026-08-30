@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The design language for everything Conterm draws outside its own window.
 ///
@@ -208,6 +209,48 @@ enum CT {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+            }
+        }
+    }
+
+    /// The real wordmark, as a template image, lit.
+    ///
+    /// The same `text-logo.png` the app's header uses — it is now in the
+    /// extension's bundle too, so the two never drift. Filled with a gradient
+    /// that runs from near-white to coral and given a soft red bloom, which
+    /// is as close to the Mac app's lit chrome as a static snapshot can get.
+    struct Logo: View {
+        var height: CGFloat = 15
+
+        private static let image: UIImage? = {
+            if let named = UIImage(named: "text-logo") {
+                return named.withRenderingMode(.alwaysTemplate)
+            }
+            if let url = Bundle.main.url(forResource: "text-logo", withExtension: "png"),
+               let data = try? Data(contentsOf: url),
+               let loaded = UIImage(data: data) {
+                return loaded.withRenderingMode(.alwaysTemplate)
+            }
+            return nil
+        }()
+
+        var body: some View {
+            if let image = Self.image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: height)
+                    .foregroundStyle(
+                        LinearGradient(colors: [CT.text, CT.text, CT.coral],
+                                       startPoint: .topLeading,
+                                       endPoint: .bottomTrailing))
+                    .shadow(color: CT.signature.opacity(0.45), radius: height * 0.42)
+            } else {
+                // Decorative; a missing asset must not leave a hole.
+                Text("CONTERM")
+                    .font(.system(size: height * 0.72, weight: .black, design: .rounded)
+                        .width(.expanded))
+                    .foregroundStyle(CT.text)
             }
         }
     }

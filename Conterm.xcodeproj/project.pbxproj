@@ -16,6 +16,7 @@
 		B1000031000000000000002 /* michroma-regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000002 /* michroma-regular.ttf */; };
 		B1000031000000000000003 /* text-logo.png in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000003 /* text-logo.png */; };
 		B1000031000000000000004 /* michroma-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000004 /* michroma-OFL.txt */; };
+		B1000031000000000000005 /* text-logo.png in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000003 /* text-logo.png */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -281,6 +282,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B1000031000000000000005 /* text-logo.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -45,7 +45,13 @@ struct RootView: View {
         .task { if !launching { ghostty.start() } }
         // Exercises the SSH layer against a real server and logs PASS/FAIL.
         // Off unless asked for; see SSHSelfTest.
-        .task { if SSHSelfTest.isRequested { await SSHSelfTest.run() } }
+        .task {
+            guard SSHSelfTest.isRequested else { return }
+            // The terminal half needs a live engine, which the launch
+            // overlay is still building when this task starts.
+            while ghostty.app == nil { try? await Task.sleep(for: .milliseconds(100)) }
+            await SSHSelfTest.run(app: ghostty.app)
+        }
     }
 }
 

@@ -324,8 +324,15 @@ final class TerminalSession: Identifiable, Hashable {
 
     // MARK: - Input
 
+    /// Paste text. Bracketed, and control bytes stripped — which is correct
+    /// for a clipboard and wrong for a keyboard.
     func send(_ text: String) {
         surfaceView.controller?.send(text)
+    }
+
+    /// Type text, as a sequence of key events. See `SurfaceController.type`.
+    func type(_ text: String) {
+        surfaceView.controller?.type(text)
     }
 
     /// Press a key, as opposed to inserting text. See `TerminalKeyMap.press`

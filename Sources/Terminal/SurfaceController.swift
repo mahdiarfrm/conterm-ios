@@ -134,6 +134,73 @@ final class SurfaceController {
         send(text)
     }
 
+    /// Type text, one key event per character.
+    ///
+    /// The distinction this draws is the whole point. `send` is
+    /// `ghostty_surface_text`, which is *paste*, and a program that
+    /// understands bracketed paste treats what arrives as content rather than
+    /// as keystrokes — vim inserts `:wq` into the buffer instead of running
+    /// it, and a shell puts a newline into its line editor instead of
+    /// submitting. So anything the user typed goes through here, and `paste`
+    /// is left for what it says.
+    ///
+    /// `key.text` carries the character. libghostty on macOS gets that from
+    /// the NSEvent; there is no equivalent on iOS, so supplying it explicitly
+    /// is both simpler and layout-independent.
+    func type(_ text: String, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE) {
+        guard handle != nil else { return }
+        for scalar in text.unicodeScalars {
+            guard let stroke = TerminalKeyMap.keystroke(for: scalar) else {
+                // No key on a US layout produces this — an emoji, an accented
+                // character, anything an input method composed. Paste is the
+                // honest description of what that is.
+                send(String(scalar))
+                continue
+            }
+            var raw = mods.rawValue
+            if stroke.shift { raw |= GHOSTTY_MODS_SHIFT.rawValue }
+            typeOne(scalar, stroke: stroke, mods: ghostty_input_mods_e(raw))
+        }
+    }
+
+    private func typeOne(_ scalar: UnicodeScalar,
+                         stroke: TerminalKeyMap.Keystroke,
+                         mods: ghostty_input_mods_e) {
+        guard let handle,
+              let keycode = TerminalKeyMap.virtualKeyCode(for: stroke.usage) else { return }
+
+        var key = ghostty_input_key_s()
+        key.action = GHOSTTY_ACTION_PRESS
+        key.mods = mods
+        key.consumed_mods = GHOSTTY_MODS_NONE
+        key.keycode = UInt32(keycode)
+        key.composing = false
+        key.unshifted_codepoint = stroke.unshifted.value
+
+        // Return has to reach the far end as CR: a shell's line discipline
+        // ignores a bare LF, which is how Return once appeared to do nothing.
+        let produced = scalar == "\n" ? "\r" : String(scalar)
+        // A Ctrl or Alt chord produces no text of its own; libghostty derives
+        // the control byte from the keycode, and passing the letter as well
+        // would type it alongside.
+        let bare = mods.rawValue & ~GHOSTTY_MODS_SHIFT.rawValue
+        if bare != GHOSTTY_MODS_NONE.rawValue {
+            key.text = nil
+            _ = ghostty_surface_key(handle, key)
+            key.action = GHOSTTY_ACTION_RELEASE
+            _ = ghostty_surface_key(handle, key)
+            return
+        }
+
+        produced.withCString { pointer in
+            key.text = pointer
+            _ = ghostty_surface_key(handle, key)
+            key.action = GHOSTTY_ACTION_RELEASE
+            key.text = nil
+            _ = ghostty_surface_key(handle, key)
+        }
+    }
+
     /// Scroll the terminal by a pixel delta.
     ///
     /// `precision` tells libghostty the offset is in pixels rather than

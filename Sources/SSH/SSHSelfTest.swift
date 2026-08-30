@@ -29,7 +29,7 @@ enum SSHSelfTest {
     }
 
     @MainActor
-    static func run() async {
+    static func run(app: Ghostty.App? = nil) async {
         guard let hostname = env("HOST"),
               let user = env("USER"),
               let keyPath = env("KEY"),
@@ -240,6 +240,10 @@ enum SSHSelfTest {
         // command sent back.
         KnownHostsStore.shared.remember(
             fingerprint: fingerprint, keyType: "ssh-ed25519", for: host.address)
+        if let app {
+            await TerminalSelfTest.run(host: host, credentials: credentials, app: app)
+        }
+
         if ProcessInfo.processInfo.environment["CONTERM_SSHTEST_LIVE"] == "1" {
             await ContermRemoteSelfTest.runLive(host: host, credentials: credentials)
         } else {

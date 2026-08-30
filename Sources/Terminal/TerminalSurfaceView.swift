@@ -343,7 +343,11 @@ extension TerminalSurfaceView: UIKeyInput {
                 stickyModifiers = GHOSTTY_MODS_NONE
                 return
             }
-            controller.send(TerminalKeyMap.forTerminal(text))
+            // Typed, not pasted. Every character becomes a key event, so a
+            // program on the far end sees keystrokes — which is the
+            // difference between `:wq` running in vim and `:wq` being
+            // inserted into the file.
+            controller.type(text)
         }
     }
 

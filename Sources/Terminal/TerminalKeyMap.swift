@@ -157,9 +157,114 @@ enum TerminalKeyMap {
         return key
     }
 
+    /// The key that produces a character on a US layout, and whether Shift
+    /// is held to get it.
+    ///
+    /// This exists so that **typing goes through the key path**. The software
+    /// keyboard hands us text, and sending text to libghostty is
+    /// `ghostty_surface_text`, which is paste — wrapped in bracketed-paste
+    /// markers when the far program has them on. A program that understands
+    /// bracketed paste treats what arrives as *pasted content*, not as
+    /// keystrokes: vim inserts `:wq` into the buffer instead of running it,
+    /// and a shell puts a newline in its line editor instead of submitting.
+    /// So a phone keyboard could not drive vim at all, which for a terminal
+    /// is not a rough edge but a missing floor.
+    struct Keystroke {
+        let usage: UIKeyboardHIDUsage
+        let shift: Bool
+        /// What the same physical key produces without Shift. libghostty uses
+        /// it to identify the key itself, independently of the character.
+        let unshifted: UnicodeScalar
+    }
+
+    static func keystroke(for scalar: UnicodeScalar) -> Keystroke? {
+        // Letters. Shift is what separates the two cases, and the unshifted
+        // codepoint is always the lowercase.
+        if scalar.isASCII {
+            let ascii = UInt8(scalar.value)
+            if ascii >= 97, ascii <= 122, let usage = letterUsage(ascii) {
+                return Keystroke(usage: usage, shift: false, unshifted: scalar)
+            }
+            if ascii >= 65, ascii <= 90, let usage = letterUsage(ascii + 32) {
+                return Keystroke(usage: usage, shift: true,
+                                 unshifted: UnicodeScalar(ascii + 32))
+            }
+        }
+
+        switch scalar {
+        case "1": return .init(usage: .keyboard1, shift: false, unshifted: "1")
+        case "2": return .init(usage: .keyboard2, shift: false, unshifted: "2")
+        case "3": return .init(usage: .keyboard3, shift: false, unshifted: "3")
+        case "4": return .init(usage: .keyboard4, shift: false, unshifted: "4")
+        case "5": return .init(usage: .keyboard5, shift: false, unshifted: "5")
+        case "6": return .init(usage: .keyboard6, shift: false, unshifted: "6")
+        case "7": return .init(usage: .keyboard7, shift: false, unshifted: "7")
+        case "8": return .init(usage: .keyboard8, shift: false, unshifted: "8")
+        case "9": return .init(usage: .keyboard9, shift: false, unshifted: "9")
+        case "0": return .init(usage: .keyboard0, shift: false, unshifted: "0")
+
+        case "!": return .init(usage: .keyboard1, shift: true, unshifted: "1")
+        case "@": return .init(usage: .keyboard2, shift: true, unshifted: "2")
+        case "#": return .init(usage: .keyboard3, shift: true, unshifted: "3")
+        case "$": return .init(usage: .keyboard4, shift: true, unshifted: "4")
+        case "%": return .init(usage: .keyboard5, shift: true, unshifted: "5")
+        case "^": return .init(usage: .keyboard6, shift: true, unshifted: "6")
+        case "&": return .init(usage: .keyboard7, shift: true, unshifted: "7")
+        case "*": return .init(usage: .keyboard8, shift: true, unshifted: "8")
+        case "(": return .init(usage: .keyboard9, shift: true, unshifted: "9")
+        case ")": return .init(usage: .keyboard0, shift: true, unshifted: "0")
+
+        case "-": return .init(usage: .keyboardHyphen, shift: false, unshifted: "-")
+        case "_": return .init(usage: .keyboardHyphen, shift: true, unshifted: "-")
+        case "=": return .init(usage: .keyboardEqualSign, shift: false, unshifted: "=")
+        case "+": return .init(usage: .keyboardEqualSign, shift: true, unshifted: "=")
+        case "[": return .init(usage: .keyboardOpenBracket, shift: false, unshifted: "[")
+        case "{": return .init(usage: .keyboardOpenBracket, shift: true, unshifted: "[")
+        case "]": return .init(usage: .keyboardCloseBracket, shift: false, unshifted: "]")
+        case "}": return .init(usage: .keyboardCloseBracket, shift: true, unshifted: "]")
+        case "\\": return .init(usage: .keyboardBackslash, shift: false, unshifted: "\\")
+        case "|": return .init(usage: .keyboardBackslash, shift: true, unshifted: "\\")
+        case ";": return .init(usage: .keyboardSemicolon, shift: false, unshifted: ";")
+        case ":": return .init(usage: .keyboardSemicolon, shift: true, unshifted: ";")
+        case "'": return .init(usage: .keyboardQuote, shift: false, unshifted: "'")
+        case "\"": return .init(usage: .keyboardQuote, shift: true, unshifted: "'")
+        case "`": return .init(usage: .keyboardGraveAccentAndTilde, shift: false, unshifted: "`")
+        case "~": return .init(usage: .keyboardGraveAccentAndTilde, shift: true, unshifted: "`")
+        case ",": return .init(usage: .keyboardComma, shift: false, unshifted: ",")
+        case "<": return .init(usage: .keyboardComma, shift: true, unshifted: ",")
+        case ".": return .init(usage: .keyboardPeriod, shift: false, unshifted: ".")
+        case ">": return .init(usage: .keyboardPeriod, shift: true, unshifted: ".")
+        case "/": return .init(usage: .keyboardSlash, shift: false, unshifted: "/")
+        case "?": return .init(usage: .keyboardSlash, shift: true, unshifted: "/")
+        case " ": return .init(usage: .keyboardSpacebar, shift: false, unshifted: " ")
+        case "\t": return .init(usage: .keyboardTab, shift: false, unshifted: "\t")
+        // UIKit reports Return as a newline; the terminal wants the key.
+        case "\n", "\r": return .init(usage: .keyboardReturnOrEnter, shift: false, unshifted: "\r")
+        default: return nil
+        }
+    }
+
+    private static func letterUsage(_ lowercaseASCII: UInt8) -> UIKeyboardHIDUsage? {
+        let all: [UIKeyboardHIDUsage] = [
+            .keyboardA, .keyboardB, .keyboardC, .keyboardD, .keyboardE, .keyboardF,
+            .keyboardG, .keyboardH, .keyboardI, .keyboardJ, .keyboardK, .keyboardL,
+            .keyboardM, .keyboardN, .keyboardO, .keyboardP, .keyboardQ, .keyboardR,
+            .keyboardS, .keyboardT, .keyboardU, .keyboardV, .keyboardW, .keyboardX,
+            .keyboardY, .keyboardZ,
+        ]
+        let index = Int(lowercaseASCII) - 97
+        guard index >= 0, index < all.count else { return nil }
+        return all[index]
+    }
+
     /// The HID usage for a printable character, so a Ctrl chord can be sent
     /// as a real key event rather than as a raw control byte.
     static func usage(for scalar: UnicodeScalar) -> UIKeyboardHIDUsage? {
+        if let stroke = keystroke(for: scalar) { return stroke.usage }
+        return legacyUsage(for: scalar)
+    }
+
+    private static func legacyUsage(for scalar: UnicodeScalar) -> UIKeyboardHIDUsage? {
         switch scalar {
         case "a", "A": return .keyboardA
         case "b", "B": return .keyboardB

@@ -2,40 +2,44 @@ import Foundation
 
 /// Runs one-shot commands over SSH.
 ///
-/// The host probe wants a single round trip, not a session, so this opens a
-/// connection, execs, and closes. Conterm on macOS got the same shape for free
-/// by shelling out to `ssh host sh` with `BatchMode=yes`; here it is explicit.
-actor SSHCommandRunner: HostCommandRunner {
+/// The host probe, Agent Center and the Mac reader all want to say one thing
+/// and hear the answer. They used to do it by opening a whole connection each
+/// — the shape Conterm on macOS gets for free by shelling out to `ssh host
+/// sh`, and the shape that is most expensive on a phone. Now they borrow the
+/// host's existing connection from the pool and open a channel on it, so the
+/// second and every subsequent command costs a round trip rather than a
+/// handshake.
+///
+/// The trust policy is `requireKnown` on purpose: none of these callers is a
+/// gesture the user just made, and a fingerprint prompt that appears on its
+/// own, during a background refresh, is a prompt people learn to tap through.
+/// Trust is established by opening a terminal, deliberately, once.
+struct SSHCommandRunner: HostCommandRunner {
+    private let host: Host
     private let credentials: SSHCredentials
     private let timeout: Duration
+    private let policy: HostKeyTrust.Policy
 
     /// Conterm's probe gives a wedged connection 15 seconds before it kills
     /// it. A phone on cellular deserves a little more rope.
-    init(credentials: SSHCredentials, timeout: Duration = .seconds(25)) {
+    init(host: Host,
+         credentials: SSHCredentials,
+         timeout: Duration = .seconds(25),
+         policy: HostKeyTrust.Policy = .requireKnown) {
+        self.host = host
         self.credentials = credentials
         self.timeout = timeout
+        self.policy = policy
     }
 
-    func runShell(_ script: String, on host: HostAddress) async throws -> String {
-        let transport = Libssh2Transport()
-        let credentials = self.credentials
-
-        return try await withThrowingTaskGroup(of: String.self) { group in
-            group.addTask {
-                try await transport.connect(credentials)
-                defer { Task { await transport.disconnect() } }
-                // The collector is a POSIX-sh script fed to a shell, exactly
-                // as the Mac app pipes it to `ssh host sh` over stdin.
-                return try await transport.exec(script)
-            }
-            group.addTask { [timeout] in
-                try await Task.sleep(for: timeout)
-                throw SSHError.timedOut
-            }
-
-            guard let first = try await group.next() else { throw SSHError.timedOut }
-            group.cancelAll()
-            return first
+    func runShell(_ script: String, on address: HostAddress) async throws -> String {
+        let timeout = self.timeout
+        return try await SSHConnectionPool.shared.withConnection(
+            for: host, credentials: credentials, policy: policy
+        ) { connection in
+            // The collector is a POSIX-sh script handed to the login shell,
+            // exactly as the Mac app pipes it to `ssh host sh`.
+            try await connection.exec(script, timeout: timeout).output
         }
     }
 }

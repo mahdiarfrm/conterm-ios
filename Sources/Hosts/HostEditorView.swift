@@ -142,6 +142,7 @@ struct HostEditorView: View {
                 }
 
                 if existing != nil {
+                    trustedKeySection
                     Section {
                         Button("Delete host", role: .destructive) {
                             store.delete(host)
@@ -198,6 +199,41 @@ struct HostEditorView: View {
 
         if existing == nil { store.add(h) } else { store.update(h) }
         dismiss()
+    }
+}
+
+
+extension HostEditorView {
+    /// The key this host is pinned to, and the only way to unpin it.
+    ///
+    /// Deliberately *here* rather than on the mismatch wall. When a key
+    /// changes, a rebuilt server and an attacker look identical from the
+    /// phone, so the wall refuses and says so — and forgetting the old key is
+    /// something you come and do on purpose, having checked the new
+    /// fingerprint some other way. A "continue anyway" button in the moment
+    /// of the warning is how this protection gets clicked through.
+    @ViewBuilder
+    var trustedKeySection: some View {
+        if let known = KnownHostsStore.shared.entry(for: host.address) {
+            Section("Trusted host key") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(known.fingerprint)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.textPrimary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("\(known.keyType) \u{00b7} trusted \(known.firstSeen.formatted(.relative(presentation: .named)))")
+                        .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .padding(.vertical, 2)
+
+                Button("Forget this key", role: .destructive) {
+                    KnownHostsStore.shared.forget(host.address)
+                    Haptics.shared.fire(.warning)
+                }
+            }
+        }
     }
 }
 

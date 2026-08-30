@@ -53,7 +53,7 @@ struct ContermRemoteView: View {
             return
         }
         let model = ContermRemoteReader(address: host.address,
-                                        runner: SSHCommandRunner(credentials: credentials))
+                                        runner: SSHCommandRunner(host: host, credentials: credentials))
         reader = model
         model.start()
     }

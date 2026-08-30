@@ -62,5 +62,14 @@ final class GhosttyRuntime {
         // single biggest battery win available: a terminal with a blinking
         // cursor otherwise keeps drawing while the phone is in a pocket.
         app?.setFocus(phase == .active)
+
+        // iOS never tells an app that its sockets died while it was
+        // suspended; it simply stops scheduling it and the far end times
+        // out. Checking on the way back means the first thing the user
+        // touches reconnects, instead of hanging on a socket that has been
+        // dead for an hour.
+        if phase == .active {
+            Task { await SSHConnectionPool.shared.pruneDead() }
+        }
     }
 }

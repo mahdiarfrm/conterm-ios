@@ -15,22 +15,20 @@ struct TerminalScreen: View {
                 TerminalView(session: session)
                     .background(Theme.paneTile)
 
-                switch session.state {
-                case .connecting:
-                    EmptyView()
-                case .failed, .closed:
-                    EmptyView()
-                case .connected:
-                    // Status lives in the terminal's own scrollback now.
-                    EmptyView()
-                }
             }
+            // Status lives in the terminal's own scrollback, which is the
+            // right home for anything you might want to scroll back to. The
+            // one exception is what is happening *right now* and will be
+            // gone in a second — a connect phase, a retry countdown — which
+            // belongs somewhere that clears itself.
+            .overlay(alignment: .top) { statusStrip }
 
             if Self.showDiagnostics { diagnostics }
             KeyAccessoryBar(session: session)
         }
         .background(Theme.appBackground.ignoresSafeArea())
         .animation(Theme.Spring.soft, value: session.state)
+        .animation(Theme.crossfade, value: session.reconnectingIn)
         .navigationTitle(session.title ?? session.host.alias)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.paneTitleBar, for: .navigationBar)
@@ -90,5 +88,66 @@ extension TerminalScreen {
         .monospacedDigit()
         .padding(.horizontal, 16)
         .padding(.vertical, 5)
+    }
+}
+
+extension TerminalScreen {
+    /// A thin line at the top of the terminal, present only while something
+    /// is in flight or has gone wrong.
+    ///
+    /// "connecting…" for eight seconds tells you nothing about what is slow.
+    /// On a phone the answer is usually the radio waking up rather than the
+    /// host refusing you, and those deserve different amounts of patience.
+    @ViewBuilder
+    fileprivate var statusStrip: some View {
+        switch session.state {
+        case .connected:
+            EmptyView()
+        case .connecting:
+            if let seconds = session.reconnectingIn {
+                strip("reconnecting in \(seconds)s", tint: Theme.warning, busy: false)
+            } else {
+                strip(session.phase?.label ?? "connecting", tint: Theme.sshAccent, busy: true)
+            }
+        case .failed(let why):
+            strip(why, tint: Theme.Status.danger, busy: false, retry: true)
+        case .closed(let why):
+            strip(why ?? "session ended", tint: Theme.Status.neutral, busy: false, retry: true)
+        }
+    }
+
+    fileprivate func strip(_ text: String,
+                           tint: Color,
+                           busy: Bool,
+                           retry: Bool = false) -> some View {
+        HStack(spacing: 8) {
+            if busy {
+                ProgressView().controlSize(.mini).tint(tint)
+            } else {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 5, height: 5)
+                    .shadow(color: tint.opacity(0.7), radius: 3)
+            }
+            Text(text)
+                .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            if retry {
+                Button("Reconnect") { session.reconnect() }
+                    .font(.system(size: Theme.ui(11), weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.sshAccent)
+                    .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.stroke).frame(height: 0.5)
+        }
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }

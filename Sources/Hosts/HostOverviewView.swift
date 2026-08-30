@@ -103,7 +103,7 @@ struct HostOverviewView: View {
             return
         }
         probe = HostProbeModel(address: host.address,
-                               runner: SSHCommandRunner(credentials: credentials))
+                               runner: SSHCommandRunner(host: host, credentials: credentials))
     }
 
     // MARK: - Header

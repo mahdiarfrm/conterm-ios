@@ -34,11 +34,18 @@ struct RootView: View {
             }
         }
         .animation(Theme.crossfade, value: launching)
+        // At the root, because a connection can be started from the host
+        // list, the palette or a session, and the prompt has to outlive any
+        // of those being dismissed underneath it.
+        .hostKeyPrompts()
         // The overlay normally starts the engine, one runloop in, so it is
         // actually on screen first. With the animation turned off there is
         // no overlay to do it — `start()` is idempotent, so both paths can
         // call it.
         .task { if !launching { ghostty.start() } }
+        // Exercises the SSH layer against a real server and logs PASS/FAIL.
+        // Off unless asked for; see SSHSelfTest.
+        .task { if SSHSelfTest.isRequested { await SSHSelfTest.run() } }
     }
 }
 

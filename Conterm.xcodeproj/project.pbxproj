@@ -11,26 +11,12 @@
 		B1000021000000000000002 /* ssh2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000020000000000000002 /* ssh2.xcframework */; };
 		B1000021000000000000003 /* crypto.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000020000000000000003 /* crypto.xcframework */; };
 		B1000021000000000000004 /* ssl.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000020000000000000004 /* ssl.xcframework */; };
+		B1000021000000000000005 /* ContermWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B1000001000000000000003 /* ContermWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B1000031000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000001 /* Assets.xcassets */; };
 		B1000031000000000000002 /* michroma-regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000002 /* michroma-regular.ttf */; };
 		B1000031000000000000003 /* text-logo.png in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000003 /* text-logo.png */; };
 		B1000031000000000000004 /* michroma-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = B1000030000000000000004 /* michroma-OFL.txt */; };
-		B1000021000000000000005 /* ContermWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B1000001000000000000003 /* ContermWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		B1000011000000000000001 /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				B1000021000000000000005 /* ContermWidget.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXContainerItemProxy section */
 		B100000E000000000000001 /* PBXContainerItemProxy */ = {
@@ -49,9 +35,24 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		B1000011000000000000001 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B1000021000000000000005 /* ContermWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		B1000001000000000000001 /* Conterm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Conterm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1000001000000000000002 /* ContermTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ContermTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1000001000000000000003 /* ContermWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ContermWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1000020000000000000001 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GhosttyKit.xcframework; path = Vendor/GhosttyKit.xcframework; sourceTree = "<group>"; };
 		B1000020000000000000002 /* ssh2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ssh2.xcframework; path = Vendor/ssh2.xcframework; sourceTree = "<group>"; };
 		B1000020000000000000003 /* crypto.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = crypto.xcframework; path = Vendor/crypto.xcframework; sourceTree = "<group>"; };
@@ -60,7 +61,6 @@
 		B1000030000000000000002 /* michroma-regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "michroma-regular.ttf"; path = "Resources/michroma-regular.ttf"; sourceTree = "<group>"; };
 		B1000030000000000000003 /* text-logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "text-logo.png"; path = "Resources/text-logo.png"; sourceTree = "<group>"; };
 		B1000030000000000000004 /* michroma-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = "michroma-OFL.txt"; path = "Resources/michroma-OFL.txt"; sourceTree = "<group>"; };
-		B1000001000000000000003 /* ContermWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ContermWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -240,7 +240,7 @@
 					};
 				};
 			};
-			buildConfigurationList = B1000008000000000000003 /* Build configuration list for PBXProject "Conterm" */;
+			buildConfigurationList = B1000008000000000000003 /* Build configuration list for PBXNativeTarget "ContermWidget" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -320,47 +320,6 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		B100000C000000000000001 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				COPY_PHASE_STRIP = NO;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_TESTABILITY = YES;
-				GCC_NO_COMMON_BLOCKS = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
-				MTL_FAST_MATH = YES;
-				ONLY_ACTIVE_ARCH = YES;
-				SDKROOT = iphoneos;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 6.0;
-			};
-			name = Debug;
-		};
-		B100000C000000000000002 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				COPY_PHASE_STRIP = NO;
-				ENABLE_NS_ASSERTIONS = NO;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				GCC_NO_COMMON_BLOCKS = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MTL_ENABLE_DEBUG_INFO = NO;
-				MTL_FAST_MATH = YES;
-				SDKROOT = iphoneos;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_VERSION = 6.0;
-				VALIDATE_PRODUCT = YES;
-			};
-			name = Release;
-		};
 		B100000C000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -530,15 +489,6 @@
 			buildConfigurations = (
 				B100000C000000000000005 /* Debug */,
 				B100000C000000000000006 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		B1000008000000000000003 /* Build configuration list for PBXProject "Conterm" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				B100000C000000000000001 /* Debug */,
-				B100000C000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

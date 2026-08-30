@@ -1,0 +1,286 @@
+import Foundation
+import os
+
+/// Drives the SSH layer against a real server and reports what happened.
+///
+/// The transport had never met an SSH daemon: everything about it was
+/// verified by reading. This runs the paths that matter — trust refusal,
+/// trust-on-first-use, the mismatch wall, a shell, and several commands
+/// multiplexed onto the same connection while that shell is open — and says
+/// PASS or FAIL for each, so a regression shows up as a line rather than as a
+/// mysterious black rectangle.
+///
+/// Set `CONTERM_SSHTEST=1` plus `_HOST`, `_PORT`, `_USER` and `_KEY`.
+enum SSHSelfTest {
+    static var isRequested: Bool {
+        ProcessInfo.processInfo.environment["CONTERM_SSHTEST"] == "1"
+    }
+
+    private static func env(_ name: String) -> String? {
+        ProcessInfo.processInfo.environment["CONTERM_SSHTEST_\(name)"]
+    }
+
+    private static func say(_ text: String) {
+        NSLog("CONTERM-SSHTEST %@", text)
+    }
+
+    private static func check(_ name: String, _ passed: Bool, _ detail: String = "") {
+        say("\(passed ? "PASS" : "FAIL") \(name)\(detail.isEmpty ? "" : " — \(detail)")")
+    }
+
+    @MainActor
+    static func run() async {
+        guard let hostname = env("HOST"),
+              let user = env("USER"),
+              let keyPath = env("KEY"),
+              let privateKey = try? String(contentsOfFile: keyPath, encoding: .utf8)
+        else {
+            say("FAIL setup — need _HOST, _USER and a readable _KEY")
+            return
+        }
+        let port = Int(env("PORT") ?? "22") ?? 22
+        let publicKey = try? String(contentsOfFile: keyPath + ".pub", encoding: .utf8)
+
+        var host = Host(alias: "selftest", hostname: hostname, port: port,
+                        username: user, auth: .privateKey)
+        // A stable id so the pool keys on the same host across steps.
+        host.id = UUID(uuidString: "00000000-0000-0000-0000-00000000c0de")!
+        let credentials = SSHCredentials(
+            address: host.address,
+            method: .privateKey(private: privateKey, public: publicKey, passphrase: nil))
+
+        say("--- against \(user)@\(hostname):\(port) ---")
+        KnownHostsStore.shared.forget(host.address)
+        await SSHConnectionPool.shared.closeAll()
+
+        // 1. An unknown key must be refused outright when nobody is watching.
+        //    This is the hole that was open: the check existed, nothing
+        //    installed it, and every key was accepted silently.
+        var fingerprint: String?
+        do {
+            _ = try await SSHConnectionPool.shared.connection(
+                for: host, credentials: credentials, policy: .requireKnown)
+            check("unknown key refused", false, "it connected anyway")
+            SSHConnectionPool.shared.release(host)
+        } catch let error as SSHError {
+            if case .hostKeyUnknown(let fp) = error {
+                fingerprint = fp
+                check("unknown key refused", true, fp)
+            } else {
+                check("unknown key refused", false, "\(error)")
+            }
+        } catch {
+            check("unknown key refused", false, "\(error)")
+        }
+
+        guard let fingerprint else {
+            say("--- stopping: no fingerprint to trust ---")
+            return
+        }
+
+        // 2. Trust it, the way accepting the prompt would, and connect.
+        KnownHostsStore.shared.remember(
+            fingerprint: fingerprint, keyType: "ssh-ed25519", for: host.address)
+
+        let phases = Trail()
+        let connection: SSHConnection
+        do {
+            let started = Date()
+            connection = try await SSHConnectionPool.shared.connection(
+                for: host, credentials: credentials, policy: .requireKnown,
+                onPhase: { phase in phases.add("\(phase)") })
+            check("connect with a trusted key", true,
+                  String(format: "%.0fms", Date().timeIntervalSince(started) * 1000))
+            let steps = phases.steps
+            check("phases reported", steps.count >= 4, steps.joined(separator: " → "))
+        } catch {
+            check("connect with a trusted key", false, "\(error)")
+            return
+        }
+
+        // 3. A command, on its own channel.
+        do {
+            let result = try await connection.exec("echo hello-from-exec; echo oops >&2; exit 7")
+            check("exec stdout", result.output.contains("hello-from-exec"),
+                  result.output.trimmingCharacters(in: .whitespacesAndNewlines))
+            check("exec stderr", result.errorOutput.contains("oops"),
+                  result.errorOutput.trimmingCharacters(in: .whitespacesAndNewlines))
+            check("exec exit status", result.exitStatus == 7, "got \(result.exitStatus)")
+        } catch {
+            check("exec", false, "\(error)")
+        }
+
+        // 4. A shell with a pty, and the round trip through it.
+        let received = Received()
+        do {
+            let channel = try await connection.openShell(
+                columns: 80, rows: 24,
+                onOutput: { data in
+                    // Stamped at the callback, not after the hop into the
+                    // actor, so the latency figure measures the connection
+                    // rather than the test's own scheduling.
+                    let at = Date()
+                    Task { await received.append(data, at: at) }
+                },
+                onClosed: { _ in })
+            check("open a shell", true)
+
+            await connection.write(Data("echo shell-round-trip\n".utf8), to: channel)
+            let sawEcho = await received.wait(for: "shell-round-trip", seconds: 8)
+            check("shell round trip", sawEcho)
+
+            // 5. The point of the rewrite: commands must not stall the shell.
+            //    The old transport put the session back into blocking mode
+            //    and read to completion while holding the lock, so a probe
+            //    meant a dead keyboard for its duration.
+            let started = Date()
+            async let a = connection.exec("sleep 1; echo one")
+            async let b = connection.exec("sleep 1; echo two")
+            async let c = connection.exec("sleep 1; echo three")
+            let outputs = try await [a, b, c].map(\.output)
+            let elapsed = Date().timeIntervalSince(started)
+            check("three commands multiplexed",
+                  outputs.allSatisfy { !$0.isEmpty } && elapsed < 2.5,
+                  String(format: "%.2fs for 3×1s", elapsed))
+
+            await received.clear()
+            await connection.write(Data("echo still-alive\n".utf8), to: channel)
+            let alive = await received.wait(for: "still-alive", seconds: 8)
+            check("shell still responsive afterwards", alive)
+
+            // 6. Latency. The old pump held the actor across a 200ms poll, so
+            //    a keystroke could wait behind it; this should be single-digit
+            //    milliseconds on loopback.
+            // What a keystroke actually is: a character sent, echoed by the
+            // remote pty, and drawn. Running a command instead would measure
+            // the far shell's prompt cycle — which showed up as a flat ~50ms
+            // and has nothing to do with the transport. A leading `#` makes
+            // the line a comment so the shell does no work with it.
+            var samples: [Double] = []
+            for i in 0..<20 {
+                let mark = "ping-\(i)"
+                await received.expect(mark, occurrences: 1)
+                let sent = Date()
+                await connection.write(Data("#\(mark)\n".utf8), to: channel)
+                if let arrived = await received.arrival(seconds: 5) {
+                    samples.append(arrived.timeIntervalSince(sent) * 1000)
+                }
+            }
+            let worst = samples.max() ?? .infinity
+            let median = samples.sorted()[max(samples.count / 2, 0)]
+            // The median is what typing feels like. A worst case far above it
+            // would mean a lost wakeup — the pump sleeping through a write
+            // until its poll timed out — which is the bug this design exists
+            // to avoid, so it is checked separately.
+            check("keystroke latency", median < 20,
+                  String(format: "median %.0fms", median))
+            check("no lost wakeups", worst < 120,
+                  String(format: "worst %.0fms, all [%@]", worst,
+                         samples.map { String(format: "%.0f", $0) }.joined(separator: " ")))
+
+            await connection.closeChannel(channel)
+        } catch {
+            check("shell", false, "\(error)")
+        }
+
+        // 7. Connection reuse: a second borrow must not re-handshake.
+        do {
+            let started = Date()
+            let again = try await SSHConnectionPool.shared.connection(
+                for: host, credentials: credentials, policy: .requireKnown)
+            let elapsed = Date().timeIntervalSince(started) * 1000
+            check("pool reuses the connection", again === connection,
+                  String(format: "%.0fms", elapsed))
+            SSHConnectionPool.shared.release(host)
+        } catch {
+            check("pool reuses the connection", false, "\(error)")
+        }
+
+        SSHConnectionPool.shared.release(host)
+        await SSHConnectionPool.shared.closeAll()
+
+        // 8. The wall. Pretend we remembered something else and confirm the
+        //    connection is refused before authentication — nothing sent.
+        KnownHostsStore.shared.remember(
+            fingerprint: "SHA256:AAAAdefinitelyNotTheRealKeyAAAAAAAAAAAAAAAA",
+            keyType: "ssh-ed25519", for: host.address)
+        do {
+            _ = try await SSHConnectionPool.shared.connection(
+                for: host, credentials: credentials, policy: .requireKnown)
+            check("changed key refused", false, "it connected anyway")
+            SSHConnectionPool.shared.release(host)
+        } catch let error as SSHError {
+            if case .hostKeyMismatch = error {
+                check("changed key refused", true)
+            } else {
+                check("changed key refused", false, "\(error)")
+            }
+        } catch {
+            check("changed key refused", false, "\(error)")
+        }
+
+        KnownHostsStore.shared.forget(host.address)
+        await SSHConnectionPool.shared.closeAll()
+        say("--- done ---")
+    }
+
+    /// Records the connect phases as they are reported. A plain `var`
+    /// captured by the callback would be a data race; the callback runs
+    /// wherever the connection happens to be.
+    private final class Trail: @unchecked Sendable {
+        private let lock = NSLock()
+        private var recorded: [String] = []
+
+        func add(_ step: String) {
+            lock.lock(); defer { lock.unlock() }
+            recorded.append(step)
+        }
+
+        var steps: [String] {
+            lock.lock(); defer { lock.unlock() }
+            return recorded
+        }
+    }
+
+    /// Collects shell output so a test can wait for a specific string.
+    private actor Received {
+        private var text = ""
+        private var needle: String?
+        private var wanted = 2
+        private var arrivedAt: Date?
+
+        func append(_ data: Data, at when: Date = Date()) {
+            text += String(decoding: data, as: UTF8.self)
+            guard let needle, arrivedAt == nil else { return }
+            if text.components(separatedBy: needle).count - 1 >= wanted {
+                arrivedAt = when
+            }
+        }
+
+        func clear() { text = ""; needle = nil; arrivedAt = nil; wanted = 2 }
+
+        /// `occurrences: 1` is the pty echoing what was typed; `2` is that
+        /// echo plus the command's own output.
+        func expect(_ mark: String, occurrences: Int = 2) {
+            text = ""
+            needle = mark
+            wanted = occurrences
+            arrivedAt = nil
+        }
+
+        /// When the expected output actually landed, timed at the callback.
+        func arrival(seconds: Double) async -> Date? {
+            let deadline = Date().addingTimeInterval(seconds)
+            while Date() < deadline {
+                if let arrivedAt { return arrivedAt }
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+            return nil
+        }
+
+        func wait(for mark: String, seconds: Double) async -> Bool {
+            expect(mark)
+            return await arrival(seconds: seconds) != nil
+        }
+    }
+}

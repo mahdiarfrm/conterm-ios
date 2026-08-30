@@ -3,11 +3,16 @@ import SwiftUI
 import UIKit
 import os
 
-/// One SSH connection wired to one terminal surface.
+/// One SSH shell wired to one terminal surface.
 ///
 /// This is the join: bytes off the wire go into `SurfaceController.write`,
-/// bytes the terminal produces go out through the transport, and a resize on
+/// bytes the terminal produces go out through the connection, and a resize on
 /// either side is told to the other. Neither half knows about the other.
+///
+/// The shell is a *channel* on a connection the pool owns, not a connection of
+/// its own. That is what makes a second shell on the same host open instantly,
+/// and what lets a host overview refresh without the keyboard going dead for
+/// the duration.
 @Observable
 @MainActor
 final class TerminalSession: Identifiable, Hashable {
@@ -37,6 +42,14 @@ final class TerminalSession: Identifiable, Hashable {
         }
     }
 
+    /// How far the connection has got. "connecting…" for eight seconds says
+    /// nothing about what is slow; this does, and on a phone the answer is
+    /// usually the radio rather than the host.
+    private(set) var phase: SSHConnectPhase?
+
+    /// Set while waiting to try again after a drop, for the overlay to show.
+    private(set) var reconnectingIn: Int?
+
     /// Which shell on this host this is, 1-based. Only ever shown when a host
     /// has more than one, because "web-01 #1" on its own is just noise.
     var ordinal = 1
@@ -57,7 +70,21 @@ final class TerminalSession: Identifiable, Hashable {
     var renderLayerReport: String { surfaceView.renderLayerReport }
     var bytesWritten: Int { surfaceView.controller?.bytesWritten ?? 0 }
 
-    private let transport = Libssh2Transport()
+    private var connection: SSHConnection?
+    private var channel: SSHChannelID?
+    private var credentials: SSHCredentials?
+    private var holdsConnection = false
+    /// True once the user has closed this on purpose, which is the difference
+    /// between "reconnect" and "leave it alone".
+    private var userClosed = false
+    private var attempt = 0
+    private var reconnectTask: Task<Void, Never>?
+
+    /// A drop on a phone is normal — a lift doorway, a handover, a radio
+    /// asleep. Giving up after one is wrong; retrying forever on a host that
+    /// is genuinely gone is also wrong.
+    private let maxAttempts = 5
+
     private let log = Logger(subsystem: "dev.conterm.ios", category: "session")
 
     init(host: Host, app: Ghostty.App) {
@@ -70,18 +97,21 @@ final class TerminalSession: Identifiable, Hashable {
         }
 
         // Terminal -> wire.
-        controller.onWrite = { [transport, weak self] data in
-            self?.bytesOut += data.count
-            Task { await transport.send(data) }
+        controller.onWrite = { [weak self] data in
+            self?.sendToRemote(data)
         }
         // Terminal geometry -> remote pty.
-        controller.onResize = { [transport] columns, rows in
-            Task { await transport.resize(columns: columns, rows: rows) }
+        controller.onResize = { [weak self] columns, rows in
+            guard let self, let connection = self.connection, let channel = self.channel
+            else { return }
+            Task { await connection.resize(columns: columns, rows: rows, on: channel) }
         }
         controller.onTitle = { [weak self] title in
             self?.title = title
         }
     }
+
+    // MARK: - Banners
 
     /// Write a line into the terminal itself.
     ///
@@ -91,6 +121,18 @@ final class TerminalSession: Identifiable, Hashable {
     /// self-evident: if you can read this, the renderer works.
     func banner(_ text: String, tint: Banner = .dim) {
         surfaceView.controller?.write(Data((tint.prefix + text + "\u{1b}[0m\r\n").utf8))
+    }
+
+    /// A full-width rule with a label in it. Used for the one thing a
+    /// terminal must never be quiet about: that the shell you are looking at
+    /// is not the shell you were looking at a moment ago.
+    func rule(_ label: String, tint: Banner = .dim) {
+        let width = max(grid.columns, 20)
+        let text = " \(label) "
+        let dashes = max(width - text.count, 2)
+        let left = String(repeating: "\u{2500}", count: dashes / 2)
+        let right = String(repeating: "\u{2500}", count: dashes - dashes / 2)
+        banner(left + text + right, tint: tint)
     }
 
     enum Banner {
@@ -104,6 +146,202 @@ final class TerminalSession: Identifiable, Hashable {
             }
         }
     }
+
+    // MARK: - Connecting
+
+    func connect(credentials: SSHCredentials) {
+        self.credentials = credentials
+        userClosed = false
+        attempt = 0
+
+        banner("Conterm \u{2014} \(host.displaySubtitle)", tint: .accent)
+        establish(retrying: false)
+    }
+
+    private func establish(retrying: Bool) {
+        guard let credentials else { return }
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectingIn = nil
+        state = .connecting
+        phase = .resolving
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let connection = try await SSHConnectionPool.shared.connection(
+                    for: host,
+                    credentials: credentials,
+                    policy: .ask,
+                    onPhase: { step in
+                        Task { @MainActor [weak self] in self?.note(step) }
+                    })
+                self.connection = connection
+                self.holdsConnection = true
+
+                // Open the pty at the size the surface already is, so the
+                // remote shell's first prompt is laid out correctly rather
+                // than reflowing a beat later.
+                let grid = self.surfaceView.controller?.gridSize ?? (columns: 80, rows: 24)
+                let channel = try await connection.openShell(
+                    columns: grid.columns,
+                    rows: grid.rows,
+                    onOutput: { data in
+                        Task { @MainActor [weak self] in self?.receive(data) }
+                    },
+                    onClosed: { reason in
+                        Task { @MainActor [weak self] in self?.shellClosed(reason) }
+                    })
+
+                self.channel = channel
+                self.phase = .ready
+                self.attempt = 0
+                self.state = .connected
+                if retrying {
+                    // Unmistakable, because it has to be: the far end is a
+                    // brand new shell. Different directory, no history, none
+                    // of what was running before. A quiet reconnect that
+                    // looked like the old session would be a trap.
+                    self.rule("reconnected \u{00b7} new shell", tint: .accent)
+                } else {
+                    self.banner("connected", tint: .good)
+                }
+                SoundEffects.shared.play(.notify)
+                Haptics.shared.fire(.success)
+            } catch {
+                self.phase = nil
+                self.releaseConnection()
+                self.failed(error)
+            }
+        }
+    }
+
+    private func note(_ step: SSHConnectPhase) {
+        guard case .connecting = state else { return }
+        phase = step
+    }
+
+    private func receive(_ data: Data) {
+        bytesIn += data.count
+        surfaceView.controller?.write(data)
+        SessionActivityCenter.shared.update(for: self)
+    }
+
+    private func sendToRemote(_ data: Data) {
+        bytesOut += data.count
+        guard let connection, let channel else { return }
+        Task { await connection.write(data, to: channel) }
+    }
+
+    private func failed(_ error: any Error) {
+        let text = error.localizedDescription
+        state = .failed(text)
+        // Into the terminal as well as the overlay: the overlay is
+        // dismissable and the scrollback is not.
+        banner(text, tint: .bad)
+        if case SSHError.hostKeyMismatch = error {
+            banner("")
+            banner("Nothing was sent to that host \u{2014} not your password, "
+                 + "not a signature.", tint: .dim)
+            banner("If you rebuilt this machine, forget its key in the host's "
+                 + "settings.", tint: .dim)
+        }
+        SoundEffects.shared.play(.error)
+        Haptics.shared.fire(.failure)
+    }
+
+    // MARK: - Losing it
+
+    private func shellClosed(_ reason: String?) {
+        channel = nil
+        releaseConnection()
+
+        if userClosed {
+            state = .closed(reason)
+            return
+        }
+
+        // A shell that exited cleanly is the user typing `exit`, and
+        // reconnecting into a fresh one would be obnoxious. A shell that died
+        // with a reason is the network, and that is worth retrying.
+        guard reason != nil, attempt < maxAttempts else {
+            state = .closed(reason)
+            banner(reason ?? "connection closed", tint: reason == nil ? .dim : .bad)
+            SoundEffects.shared.play(.disconnect)
+            return
+        }
+
+        attempt += 1
+        // 1s, 2s, 4s, 8s, 15s. Fast enough that a doorway costs nothing,
+        // slow enough that a genuinely dead host isn't hammered.
+        let delay = min(Int(pow(2.0, Double(attempt - 1))), 15)
+        state = .connecting
+        banner(reason ?? "connection lost", tint: .bad)
+        SoundEffects.shared.play(.disconnect)
+
+        reconnectTask = Task { [weak self] in
+            for remaining in stride(from: delay, through: 1, by: -1) {
+                guard !Task.isCancelled else { return }
+                await MainActor.run { self?.reconnectingIn = remaining }
+                try? await Task.sleep(for: .seconds(1))
+            }
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, !self.userClosed else { return }
+                self.reconnectingIn = nil
+                self.banner("reconnecting\u{2026} (\(self.attempt) of \(self.maxAttempts))")
+                self.establish(retrying: true)
+            }
+        }
+    }
+
+    /// Try again right now, because the user asked.
+    func reconnect() {
+        guard credentials != nil else { return }
+        userClosed = false
+        attempt = 0
+        establish(retrying: true)
+    }
+
+    private func releaseConnection() {
+        guard holdsConnection else { return }
+        holdsConnection = false
+        connection = nil
+        SSHConnectionPool.shared.release(host)
+    }
+
+    func disconnect() {
+        userClosed = true
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectingIn = nil
+        if let connection, let channel {
+            Task { await connection.closeChannel(channel) }
+        }
+        channel = nil
+        releaseConnection()
+    }
+
+    // MARK: - Input
+
+    func send(_ text: String) {
+        surfaceView.controller?.send(text)
+    }
+
+    /// Press a key, as opposed to inserting text. See `TerminalKeyMap.press`
+    /// for why the difference matters.
+    func press(_ usage: UIKeyboardHIDUsage,
+               mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE,
+               text: String? = nil) {
+        guard let key = TerminalKeyMap.press(usage, mods: mods, text: text),
+              let controller = surfaceView.controller else { return }
+        controller.send(key: key)
+        var release = key
+        release.action = GHOSTTY_ACTION_RELEASE
+        controller.send(key: release)
+    }
+
+    // MARK: - Diagnostics
 
     /// Open the surface with no connection at all and write into it.
     ///
@@ -182,79 +420,5 @@ final class TerminalSession: Identifiable, Hashable {
         NSLog("CONTERM-DIAG written=\(bytesWritten) grid=\(grid.columns)x\(grid.rows) "
             + "viewport=\(text == nil ? "nil" : "\(text!.count)ch")")
         NSLog("CONTERM-DIAG text: \(trimmed)")
-    }
-
-    func connect(credentials: SSHCredentials) {
-        state = .connecting
-        let controller = surfaceView.controller
-
-        banner("Conterm \u{2014} \(host.displaySubtitle)", tint: .accent)
-        banner("connecting\u{2026}")
-
-        Task { [transport, weak self] in
-            // Wire -> terminal. Set before connecting so nothing that arrives
-            // during login is dropped.
-            await transport.setOnOutput { data in
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.bytesIn += data.count
-                    controller?.write(data)
-                    SessionActivityCenter.shared.update(for: self)
-                }
-            }
-            await transport.setOnClosed { reason in
-                Task { @MainActor in
-                    self?.state = .closed(reason)
-                    self?.banner(reason ?? "connection closed", tint: .bad)
-                    SoundEffects.shared.play(.disconnect)
-                }
-            }
-
-            do {
-                try await transport.connect(credentials)
-                // Open the pty at the size the surface already is, so the
-                // remote shell's first prompt is laid out correctly rather
-                // than reflowing a beat later.
-                let grid: (columns: Int, rows: Int) =
-                    await MainActor.run { controller?.gridSize ?? (columns: 80, rows: 24) }
-                try await transport.openShell(columns: grid.columns, rows: grid.rows)
-                await MainActor.run {
-                    self?.state = .connected
-                    self?.banner("connected", tint: .good)
-                    SoundEffects.shared.play(.notify)
-                    Haptics.shared.fire(.success)
-                }
-            } catch {
-                await MainActor.run {
-                    self?.state = .failed(error.localizedDescription)
-                    // Into the terminal as well as the overlay: the overlay
-                    // is dismissable and the scrollback is not.
-                    self?.banner(error.localizedDescription, tint: .bad)
-                    SoundEffects.shared.play(.error)
-                    Haptics.shared.fire(.failure)
-                }
-            }
-        }
-    }
-
-    func send(_ text: String) {
-        surfaceView.controller?.send(text)
-    }
-
-    /// Press a key, as opposed to inserting text. See `TerminalKeyMap.press`
-    /// for why the difference matters.
-    func press(_ usage: UIKeyboardHIDUsage,
-               mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE,
-               text: String? = nil) {
-        guard let key = TerminalKeyMap.press(usage, mods: mods, text: text),
-              let controller = surfaceView.controller else { return }
-        controller.send(key: key)
-        var release = key
-        release.action = GHOSTTY_ACTION_RELEASE
-        controller.send(key: release)
-    }
-
-    func disconnect() {
-        Task { [transport] in await transport.disconnect() }
     }
 }

@@ -151,18 +151,35 @@ enum SSHSelfTest {
             // 6. Latency. The old pump held the actor across a 200ms poll, so
             //    a keystroke could wait behind it; this should be single-digit
             //    milliseconds on loopback.
-            // What a keystroke actually is: a character sent, echoed by the
-            // remote pty, and drawn. Running a command instead would measure
-            // the far shell's prompt cycle — which showed up as a flat ~50ms
-            // and has nothing to do with the transport. A leading `#` makes
-            // the line a comment so the shell does no work with it.
+            await connection.closeChannel(channel)
+        } catch {
+            check("shell", false, "\(error)")
+        }
+
+        // 6. Round-trip latency, measured against `cat` rather than a shell.
+        //
+        //    Measuring through zsh gave a median of 0ms with occasional 400ms
+        //    outliers, and the outliers were zsh: under its line editor the
+        //    *shell* echoes what you type, not the tty driver, so the figure
+        //    tracked whether zsh happened to be between prompts. `cat` has no
+        //    line editor and no prompt, so what is left is the wire.
+        let echoed = Received()
+        do {
+            let channel = try await connection.execStream(
+                "cat",
+                onData: { data in
+                    let at = Date()
+                    Task { await echoed.append(data, at: at) }
+                },
+                onClosed: { _ in })
+
             var samples: [Double] = []
             for i in 0..<20 {
                 let mark = "ping-\(i)"
-                await received.expect(mark, occurrences: 1)
+                await echoed.expect(mark, occurrences: 1)
                 let sent = Date()
-                await connection.write(Data("#\(mark)\n".utf8), to: channel)
-                if let arrived = await received.arrival(seconds: 5) {
+                await connection.write(Data("\(mark)\n".utf8), to: channel)
+                if let arrived = await echoed.arrival(seconds: 5) {
                     samples.append(arrived.timeIntervalSince(sent) * 1000)
                 }
             }
@@ -180,7 +197,7 @@ enum SSHSelfTest {
 
             await connection.closeChannel(channel)
         } catch {
-            check("shell", false, "\(error)")
+            check("latency probe", false, "\(error)")
         }
 
         // 7. Connection reuse: a second borrow must not re-handshake.
@@ -218,6 +235,12 @@ enum SSHSelfTest {
         } catch {
             check("changed key refused", false, "\(error)")
         }
+
+        // The pair, end to end: the Mac's state pushed to the phone and a
+        // command sent back.
+        KnownHostsStore.shared.remember(
+            fingerprint: fingerprint, keyType: "ssh-ed25519", for: host.address)
+        await ContermRemoteSelfTest.run(host: host, credentials: credentials)
 
         KnownHostsStore.shared.forget(host.address)
         await SSHConnectionPool.shared.closeAll()

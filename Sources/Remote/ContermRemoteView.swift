@@ -1,19 +1,26 @@
 import SwiftUI
 
-/// Conterm on a Mac, seen from the phone.
+/// Conterm on a Mac, from the phone — and now a way to act on it.
 ///
-/// The framing matters: this is not a remote control, it is a window. You
-/// open it to find out what that machine is in the middle of — which tabs are
-/// open, which are SSH'd somewhere, which have an agent waiting on you — from
-/// somewhere else entirely. Acting on any of it is a different feature with a
-/// different threat model, and this screen deliberately doesn't grow into one.
+/// This began as a window: open it to find out what that machine is in the
+/// middle of, which tabs are SSH'd where, which have an agent waiting on you.
+/// It stays that first, because that is what you actually want from a pocket.
+/// But the moment you can see an agent waiting, not being able to answer it
+/// is the wrong kind of restraint.
+///
+/// The threat model that held control back turned out to be a misreading: the
+/// phone is already on this Mac over SSH, and anything that can drop a file
+/// in the inbox can already run anything as that user. So the honest limit is
+/// not "don't act", it is "act only in ways the keyboard could" — a closed
+/// set of commands, no arbitrary shell, listed in one place on each side.
 struct ContermRemoteView: View {
     let host: Host
     /// Injected for previews and tests; nil builds one from stored credentials.
-    var injected: ContermRemoteReader?
+    var injected: ContermRemoteLink?
 
-    @State private var reader: ContermRemoteReader?
+    @State private var link: ContermRemoteLink?
     @State private var failure: String?
+    @State private var replyingTo: ContermState.Pane?
 
     var body: some View {
         ScrollView {
@@ -30,49 +37,66 @@ struct ContermRemoteView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Haptics.shared.fire(.light)
-                    Task { await reader?.refresh() }
+                    Task { await link?.refresh() }
                 } label: { Image(systemName: "arrow.clockwise") }
-                    .disabled(reader == nil)
+                    .disabled(link == nil)
             }
         }
-        .refreshable { await reader?.refresh() }
+        .refreshable { await link?.refresh() }
         .task { start() }
-        .onDisappear { reader?.stop() }
+        .onDisappear { link?.stop() }
         .tint(Theme.accentOnDark)
+        .sheet(item: $replyingTo) { pane in
+            AgentReplySheet(pane: pane) { text, submit in
+                Task { await link?.send(.init(action: .sendText,
+                                              paneID: pane.id,
+                                              text: text,
+                                              submit: submit)) }
+            }
+        }
+        .environment(\.contermRemoteActions, ContermRemoteActions(
+            focus: { pane in
+                Haptics.shared.fire(.light)
+                Task { await link?.send(.init(action: .focusPane, paneID: pane.id)) }
+            },
+            reply: { pane in replyingTo = pane },
+            interrupt: { pane in
+                Haptics.shared.fire(.warning)
+                Task { await link?.send(.init(action: .interrupt, paneID: pane.id)) }
+            }))
     }
 
     private func start() {
-        guard reader == nil, failure == nil else { return }
+        guard link == nil, failure == nil else { return }
         if let injected {
-            reader = injected
-            Task { await injected.refresh() }
+            link = injected
+            injected.start()
             return
         }
         guard let credentials = KeyStore.shared.credentials(for: host) else {
             failure = "This host has no saved password or key yet."
             return
         }
-        let model = ContermRemoteReader(address: host.address,
-                                        runner: SSHCommandRunner(host: host, credentials: credentials))
-        reader = model
+        let model = ContermRemoteLink(host: host, credentials: credentials)
+        link = model
         model.start()
     }
 
     @ViewBuilder
     private var content: some View {
-        if let reader {
-            switch reader.phase {
-            case .loading where reader.state == nil:
+        if let link {
+            switch link.phase {
+            case .loading where link.state == nil:
                 loading
             case .notPublishing:
                 explain("Conterm isn't publishing on this Mac.",
                         detail: "Either it isn't running, or it's older than the "
                               + "version that shares its state. Nothing to fix here — "
                               + "open Conterm on that machine and this fills in.")
-            case .failed(let text) where reader.state == nil:
+            case .failed(let text) where link.state == nil:
                 explain(text, detail: nil, tint: Theme.Status.danger)
             default:
-                if let state = reader.state {
+                if let state = link.state {
                     if state.windows.isEmpty {
                         explain("Conterm is running with no windows open.", detail: nil)
                     } else {
@@ -98,7 +122,7 @@ struct ContermRemoteView: View {
                     .font(.system(size: Theme.ui(21), weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.textPrimary)
                 Spacer(minLength: 6)
-                if reader?.refreshing == true {
+                if link?.refreshing == true {
                     ProgressView().controlSize(.small).tint(Theme.sshAccent)
                 }
             }
@@ -106,7 +130,7 @@ struct ContermRemoteView: View {
                 .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
                 .foregroundStyle(Theme.textSecondary)
 
-            if let state = reader?.state, !state.looksLive {
+            if let state = link?.state, !state.looksLive {
                 // A snapshot that stopped updating is the single most
                 // misleading thing this screen can show, so it says so
                 // instead of quietly presenting stale tabs as live ones.
@@ -121,7 +145,7 @@ struct ContermRemoteView: View {
     }
 
     private var headline: String {
-        guard let state = reader?.state else { return "Conterm" }
+        guard let state = link?.state else { return "Conterm" }
         let waiting = state.agentsNeedingYou
         if waiting > 0 {
             return waiting == 1 ? "1 agent needs you" : "\(waiting) agents need you"
@@ -131,7 +155,7 @@ struct ContermRemoteView: View {
     }
 
     private var subheadline: String {
-        guard let state = reader?.state else { return host.displaySubtitle }
+        guard let state = link?.state else { return host.displaySubtitle }
         var parts: [String] = []
         if let name = state.hostName { parts.append(name) }
         if let version = state.appVersion { parts.append("Conterm \(version)") }
@@ -250,8 +274,34 @@ private struct TabBand: View {
 private struct PaneRow: View {
     let pane: ContermState.Pane
     var showIndex: Bool
+    @Environment(\.contermRemoteActions) private var actions
 
     var body: some View {
+        Button {
+            actions.focus(pane)
+        } label: {
+            row
+        }
+        .buttonStyle(.plain)
+        // Tapping a pane brings it forward on the Mac. This is the whole
+        // feature in one gesture: you are looking at a list of what that
+        // machine is doing, and the obvious thing to want is to be *there*.
+        .contextMenu {
+            Button("Bring to front", systemImage: "macwindow.on.rectangle") {
+                actions.focus(pane)
+            }
+            if pane.agentPhase != nil {
+                Button("Reply to the agent", systemImage: "text.bubble") {
+                    actions.reply(pane)
+                }
+                Button("Interrupt", systemImage: "stop.circle", role: .destructive) {
+                    actions.interrupt(pane)
+                }
+            }
+        }
+    }
+
+    private var row: some View {
         HStack(alignment: .top, spacing: 8) {
             if showIndex {
                 Text("\(pane.index)")
@@ -292,6 +342,20 @@ private struct PaneRow: View {
                         Text(label)
                             .font(.system(size: Theme.ui(11), weight: .semibold, design: .rounded))
                             .foregroundStyle(agentTint)
+                        Spacer(minLength: 4)
+                        // Only where it is the obvious next move. An agent
+                        // that is working doesn't need an answer, and a row
+                        // of buttons on every pane would bury the one that
+                        // does.
+                        if pane.agentPhase == "attention" {
+                            Button("Reply") { actions.reply(pane) }
+                                .font(.system(size: Theme.ui(10.5), weight: .bold, design: .rounded))
+                                .foregroundStyle(Theme.appBackground)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 4)
+                                .background(Capsule().fill(Theme.Status.attention))
+                                .buttonStyle(.plain)
+                        }
                     }
                 }
             }
@@ -307,5 +371,115 @@ private struct PaneRow: View {
         case "ready": return Theme.Status.ready
         default: return Theme.Status.neutral
         }
+    }
+}
+
+
+// MARK: - Acting on the Mac
+
+/// The three things this screen can do to the far machine, passed down the
+/// tree rather than threaded through every row.
+struct ContermRemoteActions: Sendable {
+    var focus: @MainActor (ContermState.Pane) -> Void = { _ in }
+    var reply: @MainActor (ContermState.Pane) -> Void = { _ in }
+    var interrupt: @MainActor (ContermState.Pane) -> Void = { _ in }
+}
+
+private struct ContermRemoteActionsKey: EnvironmentKey {
+    static let defaultValue = ContermRemoteActions()
+}
+
+extension EnvironmentValues {
+    var contermRemoteActions: ContermRemoteActions {
+        get { self[ContermRemoteActionsKey.self] }
+        set { self[ContermRemoteActionsKey.self] = newValue }
+    }
+}
+
+/// Answer an agent that is waiting on the Mac.
+///
+/// This is the payoff for the whole remote feature. Claude Code on your
+/// laptop asks a question at 11pm; the phone in your hand can answer it. The
+/// send button submits with a real Return on the far side, because a pasted
+/// newline doesn't — the same lesson Agent Center learned locally.
+struct AgentReplySheet: View {
+    let pane: ContermState.Pane
+    let onSend: (String, Bool) -> Void
+
+    @State private var text = ""
+    @FocusState private var focused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                if let label = pane.agentLabel {
+                    Text(label)
+                        .font(.system(size: Theme.ui(13), weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.Status.attention)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let dir = pane.dirLabel {
+                    Text(dir)
+                        .font(.system(size: Theme.ui(11), weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+
+                TextField("Your answer", text: $text, axis: .vertical)
+                    .lineLimit(3...8)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: Theme.ui(15), weight: .medium, design: .rounded))
+                    .foregroundStyle(Theme.textPrimary)
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Theme.paneTile)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Theme.stroke, lineWidth: 1)))
+                    .focused($focused)
+
+                // Two ways to answer, because agents ask two kinds of
+                // question. "Just Return" accepts a default prompt without
+                // typing anything, which is most of what an agent is waiting
+                // for at 11pm.
+                HStack(spacing: 10) {
+                    Button("Just Return") {
+                        onSend("", true)
+                        dismiss()
+                    }
+                    .font(.system(size: Theme.ui(13), weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .glassPill()
+                    .buttonStyle(.plain)
+
+                    Button("Send") {
+                        onSend(text, true)
+                        dismiss()
+                    }
+                    .font(.system(size: Theme.ui(13), weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.appBackground)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .background(Capsule().fill(Theme.accentOnDark))
+                    .buttonStyle(.plain)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(18)
+            .background(Theme.appBackground.ignoresSafeArea())
+            .navigationTitle("Reply")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.height(340)])
+        .onAppear { focused = true }
     }
 }

@@ -67,8 +67,7 @@ actor SSHConnection {
 
     /// The self-pipe. `nonisolated let` so `write` can poke it without
     /// waiting for the actor — the whole point is that it never blocks.
-    private nonisolated let wakeRead: Int32
-    private nonisolated let wakeWrite: Int32
+    private nonisolated let gate: WakeGate
 
     /// Fired when the connection itself goes away, as opposed to one channel.
     var onClosed: (@Sendable (String?) -> Void)?
@@ -85,20 +84,7 @@ actor SSHConnection {
 
     init(address: HostAddress) {
         self.address = address
-        var fds: [Int32] = [-1, -1]
-        // A socketpair rather than a pipe: both ends are sockets, so the
-        // same `poll` handles them, and closing either end is symmetric.
-        _ = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
-        for fd in fds where fd >= 0 {
-            _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK)
-        }
-        self.wakeRead = fds[0]
-        self.wakeWrite = fds[1]
-    }
-
-    deinit {
-        if wakeRead >= 0 { Darwin.close(wakeRead) }
-        if wakeWrite >= 0 { Darwin.close(wakeWrite) }
+        self.gate = WakeGate()
     }
 
     var isAlive: Bool { !closed && session != nil }
@@ -452,7 +438,7 @@ actor SSHConnection {
 
     private struct PollParams: Sendable {
         var fd: Int32
-        var wake: Int32
+        var gate: WakeGate
         var events: Int16
         var timeoutMS: Int32
     }
@@ -484,7 +470,7 @@ actor SSHConnection {
         }
         // The timeout only has to be short enough to service keepalives and
         // command deadlines; the self-pipe covers everything urgent.
-        return .idle(PollParams(fd: socket, wake: wakeRead,
+        return .idle(PollParams(fd: socket, gate: gate,
                                 events: events, timeoutMS: 1000))
     }
 
@@ -493,18 +479,13 @@ actor SSHConnection {
         await withCheckedContinuation { continuation in
             pollQueue.async {
                 var fds = [pollfd(fd: p.fd, events: p.events, revents: 0),
-                           pollfd(fd: p.wake, events: Int16(POLLIN), revents: 0)]
+                           pollfd(fd: p.gate.readFD, events: Int16(POLLIN), revents: 0)]
                 let rc = poll(&fds, 2, p.timeoutMS)
-                if rc > 0, fds[1].revents & Int16(POLLIN) != 0 {
-                    // Drain the pokes; one wakeup covers any number of them.
-                    var scratch = [UInt8](repeating: 0, count: 256)
-                    while true {
-                        let n = scratch.withUnsafeMutableBytes {
-                            Darwin.read(p.wake, $0.baseAddress, $0.count)
-                        }
-                        if n <= 0 { break }
-                    }
-                }
+                // Unconditionally, not only when the gate is the reason poll
+                // returned. Leaving a poke unread meant the next one was
+                // written into a pipe that was already full, and a lost poke
+                // is a keystroke that waits out the whole poll timeout.
+                p.gate.drain()
                 let dead = rc > 0 &&
                     fds[0].revents & Int16(POLLHUP | POLLERR | POLLNVAL) != 0
                 continuation.resume(returning: dead)
@@ -512,11 +493,7 @@ actor SSHConnection {
         }
     }
 
-    private nonisolated func wake() {
-        guard wakeWrite >= 0 else { return }
-        var byte: UInt8 = 1
-        _ = Darwin.write(wakeWrite, &byte, 1)
-    }
+    private nonisolated func wake() { gate.poke() }
 
     private func drain(_ chan: Chan) -> Bool {
         guard !chan.outbound.isEmpty else {
@@ -706,7 +683,7 @@ actor SSHConnection {
         if directions & LIBSSH2_SESSION_BLOCK_OUTBOUND != 0 {
             events |= Int16(POLLOUT)
         }
-        _ = await Self.wait(PollParams(fd: socket, wake: wakeRead,
+        _ = await Self.wait(PollParams(fd: socket, gate: gate,
                                        events: events, timeoutMS: 40))
     }
 
@@ -828,6 +805,63 @@ actor SSHConnection {
             self.id = id
             self.raw = raw
             self.kind = kind
+        }
+    }
+}
+
+
+/// The self-pipe that lets a write interrupt the pump's `poll`.
+///
+/// The subtlety is the bookkeeping, not the pipe. A poke per write meant
+/// bytes piling up in the socketpair whenever the pump was busy enough not to
+/// drain it, and once its buffer filled, the non-blocking write failed
+/// silently — so a keystroke could sit out the full poll timeout. Keeping at
+/// most one poke outstanding makes the buffer irrelevant: the gate is either
+/// armed or it isn't.
+private final class WakeGate: @unchecked Sendable {
+    let readFD: Int32
+    private let writeFD: Int32
+    private let lock = NSLock()
+    private var armed = false
+
+    init() {
+        var fds: [Int32] = [-1, -1]
+        // A socketpair rather than a pipe: both ends are sockets, the same
+        // `poll` handles them, and closing either end is symmetric.
+        _ = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
+        for fd in fds where fd >= 0 {
+            _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK)
+        }
+        readFD = fds[0]
+        writeFD = fds[1]
+    }
+
+    deinit {
+        if readFD >= 0 { close(readFD) }
+        if writeFD >= 0 { close(writeFD) }
+    }
+
+    func poke() {
+        lock.lock()
+        let needed = !armed
+        armed = true
+        lock.unlock()
+        guard needed, writeFD >= 0 else { return }
+        var byte: UInt8 = 1
+        _ = Darwin.write(writeFD, &byte, 1)
+    }
+
+    func drain() {
+        lock.lock()
+        armed = false
+        lock.unlock()
+        guard readFD >= 0 else { return }
+        var scratch = [UInt8](repeating: 0, count: 64)
+        while true {
+            let n = scratch.withUnsafeMutableBytes {
+                Darwin.read(readFD, $0.baseAddress, $0.count)
+            }
+            if n <= 0 { break }
         }
     }
 }

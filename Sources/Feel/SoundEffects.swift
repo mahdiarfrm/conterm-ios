@@ -322,6 +322,19 @@ final class Haptics {
         UserDefaults.standard.object(forKey: prefKey) as? Bool ?? true
     }
 
+    /// One tap per typed character, if the user asked for it.
+    ///
+    /// Its own generator, prepared and reused: a keyboard fires this dozens
+    /// of times a sentence, and building an impact generator per keystroke is
+    /// how a haptic ends up arriving after the character it belongs to.
+    private let typing = UIImpactFeedbackGenerator(style: .light)
+
+    func typed() {
+        guard Self.isEnabled, Preferences.shared.typingHaptics else { return }
+        typing.impactOccurred(intensity: 0.55)
+        typing.prepare()
+    }
+
     func fire(_ kind: Kind) {
         guard Self.isEnabled else { return }
         switch kind {

@@ -20,6 +20,7 @@ final class Preferences {
         chromeScale = Self.read(defaults, "conterm.uiScale", 1.0)
         soundEffects = Self.read(defaults, "conterm.soundEffects", true)
         haptics = Self.read(defaults, "conterm.haptics", true)
+        typingHaptics = Self.read(defaults, "conterm.typingHaptics", false)
         launchAnimation = Self.read(defaults, "conterm.launchAnimation", true)
         keepScreenAwake = Self.read(defaults, "conterm.keepScreenAwake", false)
     }
@@ -50,6 +51,17 @@ final class Preferences {
 
     var haptics: Bool {
         didSet { defaults.set(haptics, forKey: "conterm.haptics") }
+    }
+
+    /// A tap for every character typed into a terminal.
+    ///
+    /// Separate from `haptics`, which covers deliberate acts — connecting,
+    /// failing, toggling. Typing is different in kind: it fires dozens of
+    /// times a sentence, and whether that reads as a keyboard with weight or
+    /// as a buzzing phone is genuinely a matter of taste. Off by default, so
+    /// nobody has to discover a setting to make their phone stop.
+    var typingHaptics: Bool {
+        didSet { defaults.set(typingHaptics, forKey: "conterm.typingHaptics") }
     }
 
     var launchAnimation: Bool {

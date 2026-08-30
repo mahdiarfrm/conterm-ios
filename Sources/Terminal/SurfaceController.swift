@@ -149,6 +149,10 @@ final class SurfaceController {
     /// is both simpler and layout-independent.
     func type(_ text: String, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE) {
         guard handle != nil else { return }
+        // Every typed character comes through here, which is why the tap
+        // lives here rather than in the keyboard view — the accessory row and
+        // a hardware keyboard get it too, for free.
+        if !text.isEmpty { Haptics.shared.typed() }
         for scalar in text.unicodeScalars {
             guard let stroke = TerminalKeyMap.keystroke(for: scalar) else {
                 // No key on a US layout produces this — an emoji, an accented

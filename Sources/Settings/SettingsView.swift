@@ -32,6 +32,10 @@ struct SettingsView: View {
                                   help: "Synthesised, no audio files. Mixes with whatever else is playing.",
                                   isOn: $prefs.soundEffects)
                         toggleRow("Haptics", isOn: $prefs.haptics)
+                        toggleRow("Typing haptics",
+                                  help: "A tap for every key. Off by default — it fires "
+                                      + "dozens of times a sentence.",
+                                  isOn: $prefs.typingHaptics)
                         toggleRow("Launch animation", isOn: $prefs.launchAnimation)
                         stepperRow(
                             "Interface size",

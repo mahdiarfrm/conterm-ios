@@ -13,3 +13,6 @@ xcuserdata/
 *.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
 
 .DS_Store
+
+# Throwaway SSH server for scripts/selftest.sh — keys and logs, never shared.
+.test-host/

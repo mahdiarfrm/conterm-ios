@@ -18,6 +18,14 @@ struct SessionActivityAttributes: ActivityAttributes {
     var target: String
     /// Which shell on this host, when there is more than one.
     var ordinal: Int
+    /// When the session opened.
+    ///
+    /// In the attributes rather than the state because it never changes —
+    /// and because that lets the Island count upwards on its own, with
+    /// `Text(style: .timer)`, without spending a single refresh from the
+    /// system's budget. A live-looking number for free is exactly the trade
+    /// a Live Activity should be making.
+    var startedAt: Date
 
     struct ContentState: Codable, Hashable {
         var phase: Phase

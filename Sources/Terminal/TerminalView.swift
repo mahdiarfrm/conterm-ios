@@ -48,25 +48,29 @@ struct KeyAccessoryBar: View {
         var wide = false
     }
 
+    /// Deliberately no Return and no backspace: the software keyboard has
+    /// both, six inches below, and this row's horizontal space is the
+    /// scarcest thing on the screen. A wide Return sat between `tab` and the
+    /// arrows and pushed three of the four arrows off the edge — the keys
+    /// you reach for most, behind a scroll, to duplicate a key already on
+    /// screen.
     private static let keys: [Key] = [
         .init(label: "esc", usage: .keyboardEscape),
         .init(label: "tab", usage: .keyboardTab),
-        .init(symbol: "return", usage: .keyboardReturnOrEnter, wide: true),
-        .init(symbol: "arrow.up", usage: .keyboardUpArrow),
-        .init(symbol: "arrow.down", usage: .keyboardDownArrow),
         .init(symbol: "arrow.left", usage: .keyboardLeftArrow),
+        .init(symbol: "arrow.down", usage: .keyboardDownArrow),
+        .init(symbol: "arrow.up", usage: .keyboardUpArrow),
         .init(symbol: "arrow.right", usage: .keyboardRightArrow),
         .init(label: "/", text: "/"),
         .init(label: "-", text: "-"),
         .init(label: "|", text: "|"),
         .init(label: "~", text: "~"),
-        .init(symbol: "delete.left", usage: .keyboardDeleteOrBackspace),
     ]
 
     var body: some View {
         HStack(spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     modifier("ctrl", on: $control)
                     modifier("alt", on: $alt)
                     ForEach(Self.keys) { key in
@@ -127,8 +131,11 @@ struct KeyAccessoryBar: View {
             }
         }
         .foregroundStyle(Theme.accentOnDark)
-        .frame(minWidth: key.wide ? Theme.ui(62) : Theme.ui(44),
-               minHeight: Theme.ui(40))
+        // Sized so ctrl, alt, esc, tab and all four arrows fit a 402pt
+        // phone without scrolling. An arrow you have to scroll to is an
+        // arrow you stop using.
+        .frame(minWidth: key.wide ? Theme.ui(52) : Theme.ui(36),
+               minHeight: Theme.ui(38))
         .floatingGlass()
     }
 
@@ -141,7 +148,7 @@ struct KeyAccessoryBar: View {
             Text(title)
                 .font(.system(size: Theme.ui(14), weight: .semibold, design: .monospaced))
                 .foregroundStyle(binding.wrappedValue ? Theme.appBackground : Theme.accentOnDark)
-                .frame(minWidth: Theme.ui(52), minHeight: Theme.ui(40))
+                .frame(minWidth: Theme.ui(42), minHeight: Theme.ui(38))
                 .background {
                     if binding.wrappedValue {
                         // A latched modifier is the one thing on this bar

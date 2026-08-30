@@ -39,7 +39,8 @@ final class SessionActivityCenter {
         let attributes = SessionActivityAttributes(
             hostAlias: session.host.alias,
             target: session.host.displaySubtitle,
-            ordinal: session.ordinal)
+            ordinal: session.ordinal,
+            startedAt: Date())
         let state = contentState(for: session)
 
         do {

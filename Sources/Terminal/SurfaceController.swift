@@ -210,12 +210,24 @@ final class SurfaceController {
     /// This also does the right thing inside a full-screen program: when the
     /// far end has mouse reporting on, ghostty turns the scroll into the
     /// escape sequences `less` and `vim` expect instead of moving scrollback.
-    func scroll(byPixels dy: CGFloat, dx: CGFloat = 0) {
+    func scroll(byPoints dy: CGFloat, dx: CGFloat = 0) {
         guard let handle, dy != 0 || dx != 0 else { return }
+
+        // Points in, pixels out. libghostty compares the offset against
+        // `size.cell.height`, which is in device pixels, and UIKit hands out
+        // points — so on a 3× phone a finger asking for one screen of scroll
+        // got a third of one, which reads as a heavy, sluggish terminal.
+        //
+        // Ghostty's own macOS view has the same mismatch and an unresolved
+        // `TODO(mitchellh): do we have to scale the x/y here by window scale
+        // factor?` above an arbitrary `*= 2`. At 2× that roughly cancels; it
+        // is not a rule to copy. A finger should move content one for one,
+        // which is what every other scrollable thing on the phone does.
+        let scale = Double(view.contentScaleFactor)
         var mods = ghostty_input_scroll_mods_t()
         // Bit 0 of ghostty's ScrollMods is `precision`.
         mods |= 1
-        ghostty_surface_mouse_scroll(handle, Double(dx), Double(dy), mods)
+        ghostty_surface_mouse_scroll(handle, Double(dx) * scale, Double(dy) * scale, mods)
     }
 
     // MARK: - Geometry

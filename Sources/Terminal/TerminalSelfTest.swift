@@ -61,6 +61,7 @@ enum TerminalSelfTest {
 
     static func run(host: Host, credentials: SSHCredentials, app: Ghostty.App) async {
         say("--- terminal against \(host.displaySubtitle) ---")
+        await measureRefreshRate()
 
         let session = TerminalSession(host: host, app: app)
         // The view never enters a hierarchy here. It doesn't need to: the
@@ -181,18 +182,89 @@ enum TerminalSelfTest {
         // 7. Every shifted character and every punctuation key, through the
         //    same door. A missing entry in the layout map means a character
         //    that silently falls back to paste.
-        let punct = mark("PUNCT")
-        type("printf '%s\\n' \"$(echo 'A1!@#$%^&*()-_=+[]{}\\\\|;:,.<>/?~`\"'\"'\"')\"",
-             in: session)
-        let punctSeen = await waitFor("A1!@#$%^&*()-_=+[]{}", in: session, seconds: 10)
+        //
+        //    Reversed on the far side on purpose. The first version searched
+        //    for the punctuation itself, which a terminal echoes as you type
+        //    it — so it passed whether or not the command ran, and its own
+        //    quoting wedged the shell for every step after it. The reversal
+        //    cannot appear in the echo, so a pass means the far end really
+        //    received these characters.
+        let punctuation = "!@#$%^&*()-_=+[]{}|;:,.<>/?~"
+        let reversed = String(punctuation.reversed())
+        type("clear; printf %s '\(punctuation)' | rev", in: session)
+        let punctSeen = await waitFor(reversed, in: session, seconds: 10)
         check("punctuation types correctly", punctSeen)
         if !punctSeen { dump("punctuation", session) }
-        _ = punct
+
+        // 8. Scroll fidelity: a drag of one screen must move one screen.
+        //
+        //    "Slow to scroll" is measurable, so measure it. libghostty
+        //    compares the offset against a cell height in device pixels while
+        //    UIKit hands out points, so on a 3× phone this was moving a third
+        //    as far as the finger asked.
+        // Plain `seq`, no command substitution or quoting: the point here is
+        // the scroll, and a command that fails to run just reads as a scroll
+        // that didn't move.
+        type("clear; seq 1 400", in: session)
+        try? await Task.sleep(for: .seconds(2))
+
+        let rows = session.grid.rows
+        let heightPoints = session.surfaceView.bounds.height
+        let firstBefore = Self.lineNumber(session.firstViewportLine)
+        session.surfaceView.controller?.scroll(byPoints: heightPoints)
+        try? await Task.sleep(for: .milliseconds(500))
+        let firstAfter = Self.lineNumber(session.firstViewportLine)
+
+        if firstBefore == nil || firstAfter == nil { dump("scroll", session) }
+        if let before = firstBefore, let after = firstAfter {
+            // Dragging down reveals older output, so the first visible line
+            // number goes down by about one screen of rows.
+            let moved = before - after
+            let ratio = Double(moved) / Double(max(rows, 1))
+            check("a screen of drag scrolls a screen", ratio > 0.85 && ratio < 1.15,
+                  String(format: "moved %d of %d rows (%.0f%%)", moved, rows, ratio * 100))
+        } else {
+            check("a screen of drag scrolls a screen", false,
+                  "couldn't read line numbers: \(session.firstViewportLine)")
+        }
 
         type("rm -f /tmp/conterm-selftest.txt", in: session)
         try? await Task.sleep(for: .milliseconds(300))
         session.disconnect()
         say("--- terminal done ---")
+    }
+
+    /// The first integer on a line. `read_text` keeps the trailing spaces of
+    /// each grid row, so a screen of short lines comes back with more than
+    /// one number per line of text.
+    private static func lineNumber(_ line: String) -> Int? {
+        line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .compactMap { Int($0) }
+            .first
+    }
+
+    /// What the display actually gives us, as opposed to what we asked for.
+    ///
+    /// A CADisplayLink can request 120Hz and be handed 60 without saying so:
+    /// iOS clamps every app to 60 on a ProMotion phone unless the Info.plist
+    /// opts in with `CADisableMinimumFrameDurationOnPhone`. The only honest
+    /// way to know which you got is to count ticks. Simulators report 60
+    /// whatever the plist says — this number means something on a device.
+    private static func measureRefreshRate() async {
+        let counter = TickCounter()
+        let link = CADisplayLink(target: counter, selector: #selector(TickCounter.tick))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        try? await Task.sleep(for: .milliseconds(1500))
+        link.invalidate()
+        let rate = Double(counter.count) / 1.5
+        say(String(format: "INFO display link %.0f fps (max %.0f advertised)",
+                   rate, Double(UIScreen.main.maximumFramesPerSecond)))
+    }
+
+    private final class TickCounter: NSObject {
+        var count = 0
+        @objc func tick() { count += 1 }
     }
 
     // MARK: - Waiting

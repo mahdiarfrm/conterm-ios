@@ -20,6 +20,15 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- ProMotion. Without this iOS clamps the whole app to 60Hz on a
+	     120Hz phone: Core Animation presents at 60, and a CADisplayLink
+	     asking for 120 is quietly given 60. It is opt-in because a badly
+	     written app can burn battery at 120 for no visual gain — which is
+	     why every animation here is gated on scene phase, Low Power Mode
+	     and thermal state, and why the flick link exists only while a
+	     flick is actually decaying. -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>

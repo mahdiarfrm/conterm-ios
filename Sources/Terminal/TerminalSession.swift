@@ -390,7 +390,7 @@ final class TerminalSession: Identifiable, Hashable {
             Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(300))
                 NSLog("CONTERM-DIAG before scroll: \(self?.firstViewportLine ?? "-")")
-                self?.surfaceView.controller?.scroll(byPixels: 400)
+                self?.surfaceView.controller?.scroll(byPoints: 400)
                 try? await Task.sleep(for: .milliseconds(300))
                 NSLog("CONTERM-DIAG after drag down: \(self?.firstViewportLine ?? "-")")
             }

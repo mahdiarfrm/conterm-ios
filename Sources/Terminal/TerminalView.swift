@@ -64,39 +64,55 @@ struct KeyAccessoryBar: View {
     ]
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                modifier("ctrl", on: $control)
-                modifier("alt", on: $alt)
-                ForEach(Self.keys) { key in
-                    Button { tap(key) } label: { label(for: key) }
-                        .buttonStyle(PressablePill(scale: 0.9))
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    modifier("ctrl", on: $control)
+                    modifier("alt", on: $alt)
+                    ForEach(Self.keys) { key in
+                        Button { tap(key) } label: { label(for: key) }
+                            .buttonStyle(PressablePill(scale: 0.9))
+                    }
                 }
+                .padding(.leading, 12)
+                .padding(.vertical, 8)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-        }
-        .background(alignment: .top) {
-            // A hairline along the top edge separates the bar from the
-            // terminal without drawing a divider across the glass.
-            Rectangle().fill(Theme.stroke).frame(height: 1)
+            dismissKey
         }
         .background {
-            Group {
-                if #available(iOS 26, *) {
-                    Rectangle().fill(.ultraThinMaterial).glassEffect(in: Rectangle())
-                } else {
-                    Rectangle().fill(.ultraThinMaterial)
-                }
-            }
-            // The bar's glass has to run to the bottom edge: stopping at the
-            // safe area leaves a black strip under the keys where the window
-            // background shows through, which reads as a rendering bug rather
-            // than as the home indicator. `.container` on purpose — extending
-            // past the *keyboard* safe area instead would paint a slab in the
-            // gap the keyboard is about to fill.
-            .ignoresSafeArea(.container, edges: .bottom)
+            // The terminal's own bed, not a material slab.
+            //
+            // A translucent bar drew a visibly lighter grey band across the
+            // bottom of a black terminal — a piece of chrome announcing
+            // itself between you and the thing you came for. Painting it in
+            // the terminal's colour makes the strip disappear and leaves the
+            // keys reading as glass floating on the session. They stay
+            // *below* the grid rather than over it: a key cap covering the
+            // prompt would be a worse trade than a slab.
+            Theme.paneTile.ignoresSafeArea(.container, edges: .bottom)
         }
+    }
+
+    /// Put the keyboard away.
+    ///
+    /// A phone keyboard eats more than half the screen, and a terminal is
+    /// often something you read rather than type into — checking a log,
+    /// watching a build. There was no way to get it out of the way at all.
+    /// Pinned outside the scroller so it is always in the same place, and
+    /// tapping the terminal brings the keyboard back.
+    private var dismissKey: some View {
+        Button {
+            session.surfaceView.dismissKeyboard()
+            SoundEffects.shared.tap(.click, haptic: .light)
+        } label: {
+            Image(systemName: "keyboard.chevron.compact.down")
+                .font(.system(size: Theme.ui(15), weight: .semibold))
+                .foregroundStyle(Theme.accentOnDark)
+                .frame(minWidth: Theme.ui(46), minHeight: Theme.ui(40))
+                .floatingGlass()
+        }
+        .buttonStyle(PressablePill(scale: 0.9))
+        .padding(.trailing, 12)
     }
 
     @ViewBuilder

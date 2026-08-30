@@ -267,7 +267,7 @@ final class TerminalSurfaceView: UIView {
                 lastPanY = y
                 // Content follows the finger: dragging down reveals older
                 // output, which is the direction every touch UI has taught.
-                controller?.scroll(byPixels: delta)
+                controller?.scroll(byPoints: delta)
             case .ended, .cancelled, .failed:
                 // A terminal without flick-scroll feels dead next to every
                 // other list on the phone, so the throw carries on and decays
@@ -291,7 +291,7 @@ final class TerminalSurfaceView: UIView {
             stopDisplayLink()
             return
         }
-        controller?.scroll(byPixels: flickVelocity)
+        controller?.scroll(byPoints: flickVelocity)
         // Tuned against the decay rate iOS lists use: fast enough to settle,
         // slow enough that a flick actually travels.
         flickVelocity *= 0.955
@@ -304,6 +304,12 @@ final class TerminalSurfaceView: UIView {
     func focusKeyboard() {
         guard !isFirstResponder else { return }
         _ = becomeFirstResponder()
+    }
+
+    /// Lower the software keyboard without losing the session.
+    func dismissKeyboard() {
+        guard isFirstResponder else { return }
+        _ = resignFirstResponder()
     }
 
     override func becomeFirstResponder() -> Bool {

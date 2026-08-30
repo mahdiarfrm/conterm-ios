@@ -31,20 +31,27 @@ the widget from the home screen, add it back, squint.
 
 ## The look
 
-It is a terminal, not a card about one. Monospaced throughout, a prompt on
-the first line, and status as a *character* in the text flow — `●` up, `◌`
-connecting, `○` closed, `✕` failed — rather than a dot placed beside it.
-No border, no gradient, no colour except on those glyphs.
+Conterm's, ported from the Mac app's own `Theme.swift` and `LiquidGlass.swift`
+rather than invented here — because two apps called Conterm should not look
+like two products. Copied by value, since a widget extension cannot import
+the app's design layer.
 
-The first attempt was a rounded card with a grey stroke, a rainbow hairline
-and rounded-sans type. That is every developer-tool widget ever made, and it
-broke rules this project had already written down: `GLASS-REDESIGN.md` lists
-coloured ambient backdrops under **dead ends**, and `NodeCard.swift` rejected
-a bright ring because it "read as neon paint".
+- A near-black bed with one soft wash of the brand red in a corner: the same
+  crimson / signature-red / coral family the launch overlay uses, at a
+  fraction of the opacity, scaled to the surface so it reads as warmth at
+  every size rather than as a maroon tint on a small one.
+- Chrome is flat glass — `chromeFill` black at 0.20 with a hairline top-lit
+  rim, white 0.30 to 0.06, in `.plusLighter`. The house signature.
+- Rounded SF for names, monospaced digits for anything that changes.
+- Colour means state: green up, blue connecting, amber wants you, red gone.
+  The brand red appears once, as the mark.
 
-Small does not try to be a small Medium. A name-and-time column truncates to
-`sibche-p…` at 170pt, so the fleet is a row of glyphs — `●●◌●` — which says
-how many and what shape they are in, and cannot truncate.
+Two dead ends got here first, both worth remembering. A rounded card with a
+grey stroke and a rainbow hairline — every developer-tool widget ever made,
+and against rules this project had already written down. Then a literal
+terminal, `~ %` prompt and all: distinctive, but a costume. Conterm's chrome
+has never looked like a terminal, and a widget that does belongs to some
+other app.
 
 ## App Groups
 

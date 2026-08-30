@@ -2,48 +2,56 @@ import SwiftUI
 
 /// The design language for everything Conterm draws outside its own window.
 ///
-/// **The idea: it is a terminal.** Not a card about a terminal — a terminal.
-/// Everything on these surfaces is a character on a monospaced grid, status
-/// included: `●` for up, `◌` for connecting, `○` for closed, `✕` for failed,
-/// sitting in the text flow rather than beside it as a decoration. The first
-/// line is a prompt. The last thing is a block cursor. It reads like you
-/// `cat`'d a status file, which is a thing no other widget on a home screen
-/// looks like.
+/// Taken from the Mac app's own `Theme.swift` and `LiquidGlass.swift` rather
+/// than invented here, because two apps called Conterm should not look like
+/// two products. Ported by value: a widget extension cannot import the app's
+/// design layer, so the tokens are copied and the file says where from.
 ///
-/// **What this replaces, and why.** The first attempt was a rounded card with
-/// a grey stroke, a rainbow hairline, and rounded-sans type — which is every
-/// developer-tool widget ever made, and worse, it broke rules this project
-/// had already written down. `GLASS-REDESIGN.md` lists coloured ambient
-/// backdrops under *dead ends*; `NodeCard.swift` rejected a bright ring
-/// because it "read as neon paint". A saturated stripe across the top of a
-/// black plate is that same mistake at a smaller size.
+/// **What it looks like.** A near-black bed with one soft wash of the brand
+/// red in a corner — the same crimson/signature-red/coral family the launch
+/// overlay uses, at a fraction of the opacity, so it reads as warmth rather
+/// than as decoration. Chrome is flat glass: a black fill with a hairline
+/// top-lit rim in `.plusLighter`, which is the house signature and is on
+/// nearly every surface in the Mac app. Rounded SF for names, monospaced
+/// digits for anything that changes, amber for the one thing that wants you.
 ///
-/// So: no border, no gradient, no rainbow. A flat near-black ground, one
-/// typeface, and colour only on the status glyph — where it is the only thing
-/// carrying meaning.
+/// **What it replaced, twice.** First a rounded card with a grey stroke and a
+/// rainbow hairline — every developer-tool widget ever made, and against the
+/// project's own written rules. Then a literal terminal, `~ %` prompt and
+/// all, which was distinctive but was a costume: Conterm's chrome has never
+/// looked like a terminal, and a widget that does belongs to a different app.
 enum CT {
 
-    // MARK: - Ground
+    // MARK: - Beds  (Theme.paneTile, Theme.paneTitleBar)
 
-    /// Flat, and darker than the app's own bed. A widget sits on a wallpaper,
-    /// so a plate with a visible edge reads as a box someone drew; a plate
-    /// with none reads as a hole cut in the screen.
-    static let bed = Color(red: 0.039, green: 0.043, blue: 0.055)
+    static let bed = Color(red: 0.050, green: 0.055, blue: 0.075)
+    static let bedLift = Color(red: 0.090, green: 0.098, blue: 0.125)
 
-    static let text = Color(red: 0.898, green: 0.933, blue: 0.976)
-    static let dim = Color(red: 0.400, green: 0.478, blue: 0.612)
-    static let faint = Color(red: 0.271, green: 0.322, blue: 0.416)
+    // MARK: - Brand  (LaunchOverlay's red family)
 
-    static let ready = Color(red: 0.400, green: 0.859, blue: 0.561)
-    static let working = Color(red: 0.420, green: 0.820, blue: 1.000)
-    static let attention = Color(red: 0.969, green: 0.580, blue: 0.278)
-    static let danger = Color(red: 1.000, green: 0.360, blue: 0.360)
+    static let crimson = Color(red: 0.80, green: 0.10, blue: 0.16)
+    static let signature = Color(red: 1.00, green: 0.22, blue: 0.24)
+    static let coral = Color(red: 1.00, green: 0.42, blue: 0.34)
+
+    // MARK: - Ink  (Theme.accentOnDark, textSecondary)
+
+    static let text = Color(red: 0.92, green: 0.96, blue: 1.00)
+    static let dim = Color(red: 0.62, green: 0.68, blue: 0.78)
+    static let faint = Color(red: 0.42, green: 0.48, blue: 0.58)
+
+    // MARK: - Status  (AgentCenterOverlay's AgentColor)
+
+    static let ready = Color(red: 0.30, green: 0.82, blue: 0.46)
+    static let working = Color(red: 0.22, green: 0.56, blue: 1.00)
+    static let attention = Color(red: 1.00, green: 0.62, blue: 0.12)
+    static let idle = Color(red: 0.66, green: 0.69, blue: 0.76)
+    static let danger = Color(red: 1.00, green: 0.36, blue: 0.34)
 
     static func tint(_ phase: ContermSnapshot.Phase) -> Color {
         switch phase {
         case .connected: return ready
         case .connecting: return working
-        case .closed: return faint
+        case .closed: return idle
         case .failed: return danger
         }
     }
@@ -53,190 +61,180 @@ enum CT {
         case .agentWaiting: return attention
         case .hostDown: return danger
         case .sessionLost: return working
-        case .note: return dim
+        case .note: return idle
         }
     }
 
-    /// Status as a character, so it sits on the same grid as everything else
-    /// instead of floating beside the text as a dot someone added.
-    static func glyph(_ phase: ContermSnapshot.Phase) -> String {
-        switch phase {
-        case .connected: return "●"
-        case .connecting: return "◌"
-        case .closed: return "○"
-        case .failed: return "✕"
-        }
-    }
-
-    static func glyph(_ kind: ContermSnapshot.Signal.Kind) -> String {
+    static func symbol(_ kind: ContermSnapshot.Signal.Kind) -> String {
         switch kind {
-        case .agentWaiting: return "✦"
-        case .hostDown: return "✕"
-        case .sessionLost: return "⚡"
-        case .note: return "·"
+        case .agentWaiting: return "sparkles"
+        case .hostDown: return "exclamationmark.triangle.fill"
+        case .sessionLost: return "bolt.horizontal.fill"
+        case .note: return "circle.fill"
         }
     }
 
     // MARK: - Type
     //
-    // One family, monospaced, because the product is a terminal and because
-    // a column of times only lines up if the digits are the same width.
+    // Rounded for chrome, monospaced digits for anything that changes —
+    // the Mac app's rule, and the reason a column of times lines up.
 
-    static func mono(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+    static func ui(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
+        .system(size: size, weight: weight, design: .rounded)
     }
 
-    /// The vertical rhythm. Terminal rows are a fixed height and everything
-    /// here sits on the same one, which is most of why it reads as ordered.
-    static func line(_ size: CGFloat) -> CGFloat { (size * 1.45).rounded() }
+    // MARK: - Surfaces
 
-    // MARK: - Pieces
+    /// The bed, with one soft wash of brand red.
+    ///
+    /// A radial, off the top-right corner, at a few percent. It is the only
+    /// colour on the surface that does not mean something, and it is kept
+    /// below the threshold where it would read as a tint — the Mac app files
+    /// coloured ambient backdrops under dead ends, and this stays on the
+    /// right side of that by a wide margin.
+    struct Ground: View {
+        var body: some View {
+            GeometryReader { geo in
+                // The radius has to scale with the surface. Fixed at 260pt it
+                // was a soft corner glow on a large widget and a wash over the
+                // entire card on a small one, which read as a maroon tint
+                // rather than as warmth.
+                let reach = max(geo.size.width, geo.size.height)
+                ZStack {
+                    LinearGradient(colors: [bedLift, bed],
+                                   startPoint: .top, endPoint: .bottom)
+                    RadialGradient(
+                        colors: [signature.opacity(0.13), crimson.opacity(0.05), .clear],
+                        center: UnitPoint(x: 0.95, y: -0.05),
+                        startRadius: 0, endRadius: reach * 0.78)
+                    RadialGradient(
+                        colors: [coral.opacity(0.04), .clear],
+                        center: UnitPoint(x: 0.02, y: 1.05),
+                        startRadius: 0, endRadius: reach * 0.55)
+                }
+            }
+        }
+    }
 
-    /// The ground, with terminal padding and nothing else.
-    struct Screen<Content: View>: View {
-        var padding: CGFloat = 15
+    /// The flat glass capsule: a black fill and a hairline top-lit rim in
+    /// `.plusLighter`. Straight out of `LiquidGlass.swift` — `chromeFill` is
+    /// black at 0.20, `chromeEdge` runs white 0.30 to white 0.06.
+    struct Chip<Content: View>: View {
+        var tint: Color?
         @ViewBuilder var content: Content
 
         var body: some View {
             content
-                .padding(padding)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(CT.bed)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background {
+                    Capsule(style: .continuous)
+                        .fill(tint?.opacity(0.16) ?? Color.black.opacity(0.20))
+                }
+                .overlay {
+                    Capsule(style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(colors: [.white.opacity(0.30), .white.opacity(0.06)],
+                                           startPoint: .top, endPoint: .bottom),
+                            lineWidth: 0.5)
+                        .blendMode(.plusLighter)
+                }
         }
     }
 
-    /// `~ %` and what was "typed" after it. The line that says what this is.
-    struct Prompt: View {
-        var command: String
-        var size: CGFloat = 10
+    /// The status mark: a lit dot. The Mac app's gem, unchanged.
+    struct Gem: View {
+        var color: Color
+        var size: CGFloat = 7
 
         var body: some View {
-            HStack(spacing: 5) {
-                Text("~")
-                    .foregroundStyle(CT.faint)
-                Text("%")
-                    .foregroundStyle(CT.dim)
-                Text(command)
-                    .foregroundStyle(CT.dim)
-                    .lineLimit(1)
-            }
-            .font(CT.mono(size, .semibold))
-        }
-    }
-
-    /// The block cursor. Solid, sitting on the text baseline, exactly as wide
-    /// as a character cell.
-    struct Cursor: View {
-        var size: CGFloat = 12
-        var color: Color = CT.ready
-
-        var body: some View {
-            Rectangle()
+            Circle()
                 .fill(color)
-                .frame(width: size * 0.58, height: size * 1.12)
+                .frame(width: size, height: size)
+                .shadow(color: color.opacity(0.75), radius: size * 0.62)
         }
     }
 
-    /// One session, as a line of output: glyph, name, and a right-aligned
-    /// clock. The clock ticks itself, drawn by the system.
-    struct SessionLine: View {
+    /// One session: gem, name, and a right-aligned clock that ticks itself.
+    struct SessionRow: View {
         var session: ContermSnapshot.Session
-        var size: CGFloat = 12.5
+        var size: CGFloat = 14
 
         var body: some View {
-            HStack(spacing: 0) {
-                Text(CT.glyph(session.phase))
-                    .font(CT.mono(size, .bold))
-                    .foregroundStyle(CT.tint(session.phase))
-                    .frame(width: size * 1.3, alignment: .leading)
+            HStack(spacing: 8) {
+                Gem(color: CT.tint(session.phase), size: size * 0.5)
                 Text(session.alias)
-                    .font(CT.mono(size, .semibold))
+                    .font(CT.ui(size, .semibold))
                     .foregroundStyle(CT.text)
                     .lineLimit(1)
                 if session.ordinal > 1 {
-                    Text(" #\(session.ordinal)")
-                        .font(CT.mono(size * 0.85, .medium))
+                    Text("\(session.ordinal)")
+                        .font(CT.ui(size * 0.68, .bold))
                         .foregroundStyle(CT.faint)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(.white.opacity(0.07)))
                 }
                 Spacer(minLength: 6)
                 Text(session.startedAt, style: .timer)
-                    .font(CT.mono(size, .medium))
+                    .font(CT.ui(size * 0.88, .medium))
                     .foregroundStyle(CT.dim)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .frame(minWidth: size * 4.4, alignment: .trailing)
+                    .frame(minWidth: size * 3.9, alignment: .trailing)
             }
-            .frame(height: CT.line(size))
         }
     }
 
-    /// One signal, same grid.
-    struct SignalLine: View {
+    /// One signal. The single amber thing on a surface, so it is the thing
+    /// your eye lands on.
+    struct SignalRow: View {
         var signal: ContermSnapshot.Signal
-        var size: CGFloat = 12
+        var size: CGFloat = 13
 
         var body: some View {
-            HStack(spacing: 0) {
-                Text(CT.glyph(signal.kind))
-                    .font(CT.mono(size, .bold))
+            HStack(spacing: 7) {
+                Image(systemName: CT.symbol(signal.kind))
+                    .font(.system(size: size * 0.82, weight: .bold))
                     .foregroundStyle(CT.tint(signal.kind))
-                    .frame(width: size * 1.3, alignment: .leading)
                 Text(signal.title)
-                    .font(CT.mono(size, .semibold))
+                    .font(CT.ui(size, .semibold))
                     .foregroundStyle(CT.text)
                     .lineLimit(1)
                 if let detail = signal.detail {
-                    Text("  \(detail)")
-                        .font(CT.mono(size * 0.9, .medium))
+                    Text(detail)
+                        .font(CT.ui(size * 0.82, .medium))
                         .foregroundStyle(CT.faint)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
-            .frame(height: CT.line(size))
         }
     }
 
-    /// The whole fleet as a row of characters.
-    ///
-    /// A small widget cannot hold a name-and-time column without truncating
-    /// every row to "sibche-p…", which tells you nothing. One glyph per
-    /// session tells you how many and what shape they are in, costs four
-    /// characters, and cannot truncate.
-    struct Fleet: View {
-        var sessions: [ContermSnapshot.Session]
-        var size: CGFloat = 12
+    /// The wordmark, with the brand dot. Small, and only where there is room.
+    struct Mark: View {
+        var size: CGFloat = 13
 
         var body: some View {
-            HStack(spacing: size * 0.28) {
-                ForEach(Array(sessions.prefix(8))) { session in
-                    Text(CT.glyph(session.phase))
-                        .font(CT.mono(size, .bold))
-                        .foregroundStyle(CT.tint(session.phase))
-                }
-                if sessions.count > 8 {
-                    Text("+\(sessions.count - 8)")
-                        .font(CT.mono(size * 0.8, .medium))
-                        .foregroundStyle(CT.faint)
-                }
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(LinearGradient(colors: [CT.signature, CT.crimson],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: size * 0.5, height: size * 0.5)
+                    .shadow(color: CT.signature.opacity(0.6), radius: size * 0.35)
+                Text("Conterm")
+                    .font(CT.ui(size, .bold))
+                    .foregroundStyle(CT.text)
             }
-        }
-    }
-
-    /// A rule, the way a terminal draws one.
-    struct Rule: View {
-        var body: some View {
-            Rectangle()
-                .fill(CT.faint.opacity(0.28))
-                .frame(height: 1)
         }
     }
 
     // MARK: - Helpers
 
     static func bytes(_ n: Int) -> String {
-        if n >= 1_048_576 { return String(format: "%.1fM", Double(n) / 1_048_576) }
-        if n >= 1024 { return String(format: "%.0fK", Double(n) / 1024) }
-        return "\(n)B"
+        if n >= 1_048_576 { return String(format: "%.1f MB", Double(n) / 1_048_576) }
+        if n >= 1024 { return String(format: "%.0f kB", Double(n) / 1024) }
+        return "\(n) B"
     }
 }

@@ -39,6 +39,7 @@ final class TerminalSession: Identifiable, Hashable {
             // A phase change is the only thing worth spending an immediate
             // Live Activity refresh on.
             SessionActivityCenter.shared.update(for: self, force: true)
+            WidgetBridge.refresh()
         }
     }
 
@@ -49,6 +50,11 @@ final class TerminalSession: Identifiable, Hashable {
 
     /// Set while waiting to try again after a drop, for the overlay to show.
     private(set) var reconnectingIn: Int?
+
+    /// When this session was opened. The widgets and the Dynamic Island both
+    /// count up from it, drawn by the system, so neither has to be told the
+    /// time has passed.
+    let startedAt = Date()
 
     /// Which shell on this host this is, 1-based. Only ever shown when a host
     /// has more than one, because "web-01 #1" on its own is just noise.

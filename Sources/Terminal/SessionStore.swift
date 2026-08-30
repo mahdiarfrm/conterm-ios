@@ -67,6 +67,7 @@ final class SessionStore {
         session.connect(credentials: credentials)
         // The Island is where a session you walked away from lives.
         SessionActivityCenter.shared.start(for: session)
+        WidgetBridge.refresh()
         return session
     }
 
@@ -83,6 +84,7 @@ final class SessionStore {
             .map(\.ordinal).max() ?? 0) + 1
         sessions.insert(session, at: 0)
         SessionActivityCenter.shared.start(for: session)
+        WidgetBridge.refresh()
     }
 
     /// The most recent live shell on this host, if any.
@@ -95,6 +97,7 @@ final class SessionStore {
     func close(_ session: TerminalSession) {
         session.disconnect()
         SessionActivityCenter.shared.end(for: session)
+        WidgetBridge.refresh()
         remove(session)
     }
 
@@ -102,6 +105,7 @@ final class SessionStore {
         for session in sessions {
             session.disconnect()
             SessionActivityCenter.shared.end(for: session)
+        WidgetBridge.refresh()
         }
         sessions.removeAll()
     }
@@ -113,6 +117,7 @@ final class SessionStore {
     func pruneDead() {
         for session in sessions where !live.contains(where: { $0 === session }) {
             SessionActivityCenter.shared.end(for: session)
+        WidgetBridge.refresh()
         }
         sessions.removeAll {
             switch $0.state {

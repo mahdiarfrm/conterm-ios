@@ -4,7 +4,7 @@ import SwiftUI
 struct HostListView: View {
     let app: Ghostty.App
 
-    @State private var store = HostStore()
+    @State private var store = HostStore.shared
     private var sessions: SessionStore { SessionStore.shared }
     @State private var query = ""
     @State private var session: TerminalSession?

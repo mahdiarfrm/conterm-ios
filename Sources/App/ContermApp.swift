@@ -71,5 +71,8 @@ final class GhosttyRuntime {
         if phase == .active {
             Task { await SSHConnectionPool.shared.pruneDead() }
         }
+        // Leaving the app is exactly when the home screen is about to be
+        // looked at, so the snapshot goes out now rather than on a timer.
+        if phase == .background { WidgetBridge.publishNow() }
     }
 }

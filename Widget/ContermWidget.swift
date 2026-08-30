@@ -16,6 +16,7 @@ import WidgetKit
 @main
 struct ContermWidgetBundle: WidgetBundle {
     var body: some Widget {
+        ContermStatusWidget()
         SessionLiveActivity()
     }
 }

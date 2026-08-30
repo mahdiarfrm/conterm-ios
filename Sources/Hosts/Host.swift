@@ -81,6 +81,10 @@ struct Host: Identifiable, Codable, Hashable, Sendable {
 @Observable
 @MainActor
 final class HostStore {
+    /// The one the app uses. A second instance would keep its own array and
+    /// quietly disagree with the first about what exists.
+    static let shared = HostStore()
+
     private(set) var hosts: [Host] = []
 
     private let url: URL

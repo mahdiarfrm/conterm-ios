@@ -14,7 +14,9 @@ struct RootView: View {
             } else if let error = ghostty.startupError {
                 StartupFailureView(message: error)
             } else if let app = ghostty.app {
-                if ProcessInfo.processInfo.environment["CONTERM_DEMO"] == "1" {
+                if ProcessInfo.processInfo.environment["CONTERM_WIDGETS"] != nil {
+                    NavigationStack { WidgetGallery() }
+                } else if ProcessInfo.processInfo.environment["CONTERM_DEMO"] == "1" {
                     RenderCheckScreen(app: app)
                 } else {
                     HostListView(app: app)

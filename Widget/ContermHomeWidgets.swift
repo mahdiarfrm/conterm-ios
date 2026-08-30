@@ -36,8 +36,11 @@ struct SnapshotProvider: TimelineProvider {
 struct ContermStatusWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "dev.conterm.ios.status", provider: SnapshotProvider()) { entry in
+            // The background is chosen per family inside the router. An
+            // opaque one on an accessory family is what made the lock screen
+            // widgets vanish: those render vibrant, where a near-black fill
+            // maps to nothing at all.
             ContermFaceRouter(snapshot: entry.snapshot)
-                .containerBackground(for: .widget) { CT.bed }
         }
         .configurationDisplayName("Conterm")
         .description("Live sessions, and anything waiting on you.")
@@ -55,13 +58,26 @@ struct ContermFaceRouter: View {
 
     var body: some View {
         switch family {
-        case .systemSmall: SmallFace(snapshot: snapshot)
-        case .systemMedium: MediumFace(snapshot: snapshot)
-        case .systemLarge, .systemExtraLarge: LargeFace(snapshot: snapshot)
-        case .accessoryCircular: CircularFace(snapshot: snapshot)
-        case .accessoryRectangular: RectangularFace(snapshot: snapshot)
-        case .accessoryInline: InlineFace(snapshot: snapshot)
-        @unknown default: SmallFace(snapshot: snapshot)
+        case .systemSmall:
+            SmallFace(snapshot: snapshot).containerBackground(for: .widget) { CT.bed }
+        case .systemMedium:
+            MediumFace(snapshot: snapshot).containerBackground(for: .widget) { CT.bed }
+        case .systemLarge, .systemExtraLarge:
+            LargeFace(snapshot: snapshot).containerBackground(for: .widget) { CT.bed }
+
+        // Accessory families draw themselves as a tinted stencil over the
+        // wallpaper. They must not carry a fill of their own: the circular
+        // one asks the system for its own backdrop, and the other two have
+        // none at all.
+        case .accessoryCircular:
+            CircularFace(snapshot: snapshot).containerBackground(.clear, for: .widget)
+        case .accessoryRectangular:
+            RectangularFace(snapshot: snapshot).containerBackground(.clear, for: .widget)
+        case .accessoryInline:
+            InlineFace(snapshot: snapshot).containerBackground(.clear, for: .widget)
+
+        @unknown default:
+            SmallFace(snapshot: snapshot).containerBackground(for: .widget) { CT.bed }
         }
     }
 }

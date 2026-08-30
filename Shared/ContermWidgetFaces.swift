@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 
 /// Every widget size, as plain views.
 ///
@@ -215,6 +216,9 @@ struct CircularFace: View {
     var body: some View {
         ZStack {
             let count = max(snapshot.live.count, 1)
+            // The system's own backdrop for a circular accessory. Without it
+            // the ring floats on the wallpaper with nothing behind it.
+            AccessoryWidgetBackground()
             Circle()
                 .stroke(.primary.opacity(0.22), lineWidth: 3.5)
                 .padding(3)

@@ -76,19 +76,24 @@ final class NearbyMacs {
             guard case .service(let name, _, _, _) = result.endpoint else { continue }
             var record: [String: String] = [:]
             if case .bonjour(let txt) = result.metadata {
-                for key in ["user", "host", "ssh", "version"] {
+                for key in ["user", "host", "lhost", "ssh", "version"] {
                     if let value = txt.getEntry(for: key),
                        case .string(let string) = value {
                         record[key] = string
                     }
                 }
             }
+            // The Mac tells us the name that resolves. Deriving it from the
+            // instance name looks like it works and doesn't: "mahdiar's
+            // MacBook Air" resolves as `mahdiars-MacBook-Air.local`, with the
+            // apostrophe dropped rather than hyphenated. The fallback is kept
+            // for an older Mac that doesn't send it, and is wrong in exactly
+            // that case — which is better than being absent.
+            let resolvable = record["lhost"].flatMap { $0.isEmpty ? nil : $0 }
+                ?? name.replacingOccurrences(of: " ", with: "-")
             seen.append(Found(
                 name: record["host"] ?? name,
-                // Bonjour instance names map to `<name>.local` for the A
-                // record, with spaces as hyphens — the same name Sharing shows
-                // under "local hostname".
-                hostname: name.replacingOccurrences(of: " ", with: "-") + ".local",
+                hostname: resolvable + ".local",
                 username: record["user"] ?? "",
                 appVersion: record["version"],
                 sshEnabled: record["ssh"] != "off"))

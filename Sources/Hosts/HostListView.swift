@@ -5,6 +5,7 @@ struct HostListView: View {
     let app: Ghostty.App
 
     @State private var store = HostStore.shared
+    @State private var nearby = NearbyMacs()
     private var sessions: SessionStore { SessionStore.shared }
     @State private var query = ""
     @State private var session: TerminalSession?
@@ -167,6 +168,10 @@ struct HostListView: View {
         // Sessions that died keep their terminal readable while it is open;
         // once you are back here they are just clutter.
         .onAppear { sessions.pruneDead() }
+        // Browsing is a multicast listener; it runs while this screen is up
+        // and not a moment longer.
+        .onAppear { nearby.start() }
+        .onDisappear { nearby.stop() }
     }
 
     private var brandHeader: some View {
@@ -234,6 +239,26 @@ struct HostListView: View {
         .buttonStyle(PressablePill())
     }
 
+    /// Discovered Macs that aren't already in the list. A Mac you have
+    /// already added is not a discovery, it is a duplicate.
+    private var unsavedNearby: [NearbyMacs.Found] {
+        let known = Set(store.hosts.map { $0.hostname.lowercased() })
+        return nearby.found.filter { !known.contains($0.hostname.lowercased()) }
+    }
+
+    /// Add a discovered Mac, prefilled. It still goes through the editor —
+    /// the one thing discovery cannot supply is how you authenticate.
+    private func add(_ mac: NearbyMacs.Found) {
+        Haptics.shared.fire(.light)
+        var host = Host(alias: mac.name,
+                        hostname: mac.hostname,
+                        port: 22,
+                        username: mac.username,
+                        auth: .privateKey)
+        host.distro = "macos"
+        route = .editHost(host)
+    }
+
     private var list: some View {
         List {
             // Live shells come first, always. They are the things with state
@@ -260,6 +285,21 @@ struct HostListView: View {
                     }
                 } header: {
                     sectionHeader("Live sessions", count: sessions.live.count)
+                }
+            }
+
+            // Macs on this network that are running Conterm, and are not
+            // already saved. Below live sessions and above the saved list:
+            // it is an offer, not a list of things you own.
+            if query.isEmpty, !unsavedNearby.isEmpty {
+                Section {
+                    ForEach(unsavedNearby) { mac in
+                        NearbyRow(mac: mac) { add(mac) }
+                            .listRowBackground(Color.clear)
+                            .listRowSeparatorTint(Theme.stroke)
+                    }
+                } header: {
+                    sectionHeader("Nearby", count: unsavedNearby.count)
                 }
             }
 
@@ -696,5 +736,62 @@ private struct EmptyHostsView: View {
             .rollUp(delay: 0.29)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// A Mac found on the network, offered rather than listed.
+///
+/// When the Mac says Remote Login is off the row says so instead of pretending
+/// it can be added — the connection would be refused, and "connection refused"
+/// three screens later is a worse way to learn it.
+private struct NearbyRow: View {
+    let mac: NearbyMacs.Found
+    let onAdd: () -> Void
+
+    var body: some View {
+        Button(action: mac.sshEnabled ? onAdd : {}) {
+            HStack(spacing: 12) {
+                Image(systemName: "laptopcomputer")
+                    .font(.system(size: Theme.ui(15), weight: .medium))
+                    .foregroundStyle(mac.sshEnabled ? Theme.sshAccent : Theme.textSecondary)
+                    .frame(width: Theme.ui(22))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(mac.name)
+                        .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
+                        .foregroundStyle(mac.sshEnabled ? Theme.textSecondary : Theme.warning)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                if mac.sshEnabled {
+                    Text("Add")
+                        .font(.system(size: Theme.ui(12), weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.appBackground)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(Theme.accentOnDark))
+                }
+            }
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(PressableRow())
+        .disabled(!mac.sshEnabled)
+    }
+
+    private var subtitle: String {
+        guard mac.sshEnabled else {
+            return "Remote Login is off — turn it on in System Settings → "
+                 + "General → Sharing on that Mac."
+        }
+        var parts = [mac.hostname]
+        if let version = mac.appVersion { parts.append("Conterm \(version)") }
+        return parts.joined(separator: " · ")
     }
 }

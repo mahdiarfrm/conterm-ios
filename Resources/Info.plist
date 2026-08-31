@@ -29,6 +29,15 @@
 	     flick is actually decaying. -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Finding Macs running Conterm on the same network. iOS will not
+	     browse Bonjour without both of these, and the prompt shows this
+	     string verbatim. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Conterm looks for Macs running Conterm on your network, so you can add them without typing an address.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_conterm._tcp</string>
+	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>

@@ -205,6 +205,43 @@ final class SurfaceController {
         }
     }
 
+    // MARK: - Search
+
+    /// How many matches there are, and which one is selected. Both arrive
+    /// asynchronously from libghostty's own search thread, separately, so the
+    /// callback takes each independently rather than pretending they are one
+    /// update.
+    var onSearchCount: ((Int?, Int?) -> Void)?
+
+    /// Trigger a libghostty keybind action by name. The same door the
+    /// keyboard shortcuts use, so search behaves identically to the desktop.
+    @discardableResult
+    func performBindingAction(_ action: String) -> Bool {
+        guard let handle else { return false }
+        return action.withCString {
+            ghostty_surface_binding_action(handle, $0, UInt(strlen($0)))
+        }
+    }
+
+    /// Start or update the scrollback search.
+    ///
+    /// The engine runs on libghostty's own search thread and highlights
+    /// matches in the renderer — this is the real thing, not a scrape of the
+    /// viewport, so it finds text that scrolled off hours ago and is
+    /// unaffected by where lines happen to wrap. An empty needle cancels it.
+    func search(_ needle: String) {
+        performBindingAction("search:\(needle)")
+    }
+
+    /// Step the selected match. The renderer scrolls it into view.
+    func navigateSearch(next: Bool) {
+        performBindingAction(next ? "navigate_search:next" : "navigate_search:previous")
+    }
+
+    func endSearch() {
+        performBindingAction("search:")
+    }
+
     /// Scroll the terminal by a pixel delta.
     ///
     /// `precision` tells libghostty the offset is in pixels rather than
@@ -323,8 +360,11 @@ final class SurfaceController {
             if show { _ = view.becomeFirstResponder() } else { _ = view.resignFirstResponder() }
         case .rendererHealth(let healthy):
             if !healthy { Ghostty.log.error("renderer reported unhealthy") }
-        case .pwd, .desktopNotification, .commandFinished,
-             .searchTotal, .searchSelected, .closeRequested:
+        case .searchTotal(let total):
+            onSearchCount?(total, nil)
+        case .searchSelected(let selected):
+            onSearchCount?(nil, selected)
+        case .pwd, .desktopNotification, .commandFinished, .closeRequested:
             // Handled by the session layer, which owns the UI these drive.
             break
         }

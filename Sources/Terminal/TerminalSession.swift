@@ -51,6 +51,29 @@ final class TerminalSession: Identifiable, Hashable {
     /// Set while waiting to try again after a drop, for the overlay to show.
     private(set) var reconnectingIn: Int?
 
+    /// Scrollback search. `searchSelected` is libghostty's index of the
+    /// current match, counted from the *end* of the buffer, so the find bar
+    /// converts it to something a person would say.
+    var searchQuery = "" {
+        didSet {
+            guard searchQuery != oldValue else { return }
+            searchTotal = 0
+            searchSelected = 0
+            surfaceView.controller?.search(searchQuery)
+        }
+    }
+    private(set) var searchTotal = 0
+    private(set) var searchSelected = 0
+
+    func stepSearch(next: Bool) {
+        surfaceView.controller?.navigateSearch(next: next)
+    }
+
+    func endSearch() {
+        searchQuery = ""
+        surfaceView.controller?.endSearch()
+    }
+
     /// When this session was opened. The widgets and the Dynamic Island both
     /// count up from it, drawn by the system, so neither has to be told the
     /// time has passed.
@@ -114,6 +137,10 @@ final class TerminalSession: Identifiable, Hashable {
         }
         controller.onTitle = { [weak self] title in
             self?.title = title
+        }
+        controller.onSearchCount = { [weak self] total, selected in
+            if let total { self?.searchTotal = total }
+            if let selected { self?.searchSelected = selected }
         }
     }
 

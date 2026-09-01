@@ -228,6 +228,25 @@ enum TerminalSelfTest {
                   "couldn't read line numbers: \(session.firstViewportLine)")
         }
 
+        // 9. Search the scrollback. This drives libghostty's own engine
+        //    through a keybind action, which is a path the embedded apprt
+        //    could plausibly not have wired at all — so it is asserted rather
+        //    than assumed.
+        type("clear; seq 1 300; printf 'NEEDLE%s\\n' 7; seq 301 600", in: session)
+        try? await Task.sleep(for: .seconds(3))
+        session.searchQuery = "NEEDLE7"
+        let found = await settle(seconds: 8) { session.searchTotal > 0 }
+        check("scrollback search finds a match", found,
+              "total \(session.searchTotal)")
+
+        // And a needle that is not there must report nothing rather than
+        // holding the last result, which is how a find bar starts lying.
+        session.searchQuery = "NOTHINGLIKETHIS"
+        let cleared = await settle(seconds: 6) { session.searchTotal == 0 }
+        check("search clears for a needle that is absent", cleared,
+              "total \(session.searchTotal)")
+        session.endSearch()
+
         type("rm -f /tmp/conterm-selftest.txt", in: session)
         try? await Task.sleep(for: .milliseconds(300))
         session.disconnect()

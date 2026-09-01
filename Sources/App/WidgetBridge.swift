@@ -65,9 +65,10 @@ enum WidgetBridge {
                 bytesIn: session.bytesIn)
         }
 
-        // Signals a session can raise on its own. Everything else — agents
-        // waiting, a host that stopped answering — appends here as it lands.
-        let signals: [ContermSnapshot.Signal] = SessionStore.shared.sessions.compactMap {
+        // A session can raise its own signal; everything else — agents on
+        // your Mac, a host that stopped answering — arrives through the
+        // SignalCenter, which is also what survives the app being closed.
+        let lost: [ContermSnapshot.Signal] = SessionStore.shared.sessions.compactMap {
             session in
             guard case .failed(let why) = session.state else { return nil }
             return ContermSnapshot.Signal(
@@ -77,6 +78,7 @@ enum WidgetBridge {
                 detail: why,
                 at: Date())
         }
+        let signals = lost + SignalCenter.shared.all
 
         return ContermSnapshot(
             updatedAt: Date(),

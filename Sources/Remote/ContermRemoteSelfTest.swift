@@ -131,6 +131,21 @@ enum ContermRemoteSelfTest {
         check("change pushed without polling", sawChange,
               String(format: "%.0fms", Date().timeIntervalSince(secondWrite) * 1000))
 
+        // 3b. The agent in that payload is waiting, so it must have become a
+        //     signal — which is what puts it on the home screen and in the
+        //     Island without either of them knowing what an agent is.
+        let signals = SignalCenter.shared.all.filter { $0.kind == .agentWaiting }
+        check("waiting agent becomes a signal", signals.count == 1,
+              signals.first.map { "\($0.title) · \($0.detail ?? "")" } ?? "none")
+
+        // And it must go away when the agent does, or a widget keeps telling
+        // you about an answer you already gave.
+        await write(state(panes: 3, waiting: false), to: connection)
+        let cleared = await settle(seconds: 12) {
+            SignalCenter.shared.all.filter { $0.kind == .agentWaiting }.isEmpty
+        }
+        check("signal clears when the agent stops waiting", cleared)
+
         // 4. Nothing changes: the link must be quiet, not spinning.
         let beforeIdle = link.state?.publishedAt
         try? await Task.sleep(for: .seconds(2))
@@ -220,15 +235,15 @@ enum ContermRemoteSelfTest {
     /// The exact shape `RemoteStatePublisher` writes, built here so a change
     /// on either side shows up as a decode failure in this test rather than
     /// as an empty screen in someone's hand.
-    private static func state(panes: Int) -> String {
+    private static func state(panes: Int, waiting: Bool = true) -> String {
         let formatter = ISO8601DateFormatter()
         let now = formatter.string(from: Date())
         let paneJSON = (1...panes).map { i in
             """
             {"id":"pane-\(i)","index":\(i),"title":"shell","cwd":"/tmp",
              "dirLabel":"tmp","isActive":\(i == 1),
-             "agentPhase":\(i == 1 ? "\"attention\"" : "null"),
-             "agentLabel":\(i == 1 ? "\"waiting on you\"" : "null")}
+             "agentPhase":\(i == 1 && waiting ? "\"attention\"" : "null"),
+             "agentLabel":\(i == 1 && waiting ? "\"waiting on you\"" : "null")}
             """
         }.joined(separator: ",")
         return """

@@ -97,6 +97,12 @@ struct ContermRemoteView: View {
                 explain(text, detail: nil, tint: Theme.Status.danger)
             default:
                 if let state = link.state {
+                    // Agents first, always. The rest of this screen is a
+                    // description of a machine; this part is a list of things
+                    // waiting on you, and burying them inside the pane rows
+                    // of the tab they happen to live in was exactly backwards
+                    // for the way people actually use their laptop.
+                    waiting(state)
                     if state.windows.isEmpty {
                         explain("Conterm is running with no windows open.", detail: nil)
                     } else {
@@ -110,6 +116,34 @@ struct ContermRemoteView: View {
             explain(failure, detail: nil, tint: Theme.Status.danger)
         } else {
             loading
+        }
+    }
+
+    /// The agents that want something, lifted out of the tree.
+    @ViewBuilder
+    private func waiting(_ state: ContermState) -> some View {
+        let panes = state.windows.flatMap(\.tabs).flatMap(\.panes)
+            .filter { $0.agentPhase == "attention" }
+        if !panes.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("WAITING ON YOU")
+                    .font(.system(size: Theme.ui(10), weight: .bold))
+                    .tracking(1.0)
+                    .foregroundStyle(Theme.Status.attention)
+                ForEach(panes, id: \.id) { pane in
+                    WaitingRow(pane: pane)
+                }
+            }
+            .padding(14)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Theme.Status.attention.opacity(0.10))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Theme.Status.attention.opacity(0.28), lineWidth: 0.5)
+            }
+            .padding(.bottom, 16)
         }
     }
 
@@ -481,5 +515,42 @@ struct AgentReplySheet: View {
         }
         .presentationDetents([.height(340)])
         .onAppear { focused = true }
+    }
+}
+
+/// One waiting agent, with the two things you would do about it.
+private struct WaitingRow: View {
+    let pane: ContermState.Pane
+    @Environment(\.contermRemoteActions) private var actions
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "sparkles")
+                .font(.system(size: Theme.ui(13), weight: .bold))
+                .foregroundStyle(Theme.Status.attention)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pane.agentLabel ?? "An agent needs you")
+                    .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let dir = pane.dirLabel {
+                    Text(dir)
+                        .font(.system(size: Theme.ui(11), weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+
+            Spacer(minLength: 6)
+
+            Button("Reply") { actions.reply(pane) }
+                .font(.system(size: Theme.ui(12), weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.appBackground)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(Theme.Status.attention))
+                .buttonStyle(.plain)
+        }
     }
 }

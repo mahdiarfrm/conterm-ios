@@ -186,6 +186,12 @@ final class ContermRemoteLink {
         state = decoded
         phase = .loaded
         refreshing = false
+
+        // Everything that wants you, out to the widgets and the Island. The
+        // Mac is where almost everyone's agents actually run, so this is the
+        // source that matters most — and the one nothing was feeding.
+        SignalCenter.shared.post(decoded.agentSignals(machine: host.alias),
+                                 from: "mac.\(host.id.uuidString)")
     }
 
     // MARK: - Asking for things

@@ -67,8 +67,15 @@ struct KeyAccessoryBar: View {
         .init(label: "~", text: "~"),
     ]
 
+    /// Raised by the snippets key. The row is where the thumb already is,
+    /// which is a better home for "commands I keep" than a menu two taps away
+    /// behind an ellipsis — the first version put it there and it was never
+    /// found.
+    @State private var showingSnippets = false
+
     var body: some View {
         HStack(spacing: 8) {
+            snippetKey
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
                     modifier("ctrl", on: $control)
@@ -78,7 +85,7 @@ struct KeyAccessoryBar: View {
                             .buttonStyle(PressablePill(scale: 0.9))
                     }
                 }
-                .padding(.leading, 12)
+                .padding(.leading, 8)
                 .padding(.vertical, 8)
             }
             dismissKey
@@ -94,6 +101,27 @@ struct KeyAccessoryBar: View {
             // *below* the grid rather than over it: a key cap covering the
             // prompt would be a worse trade than a slab.
             Theme.paneTile.ignoresSafeArea(.container, edges: .bottom)
+        }
+    }
+
+    private var snippetKey: some View {
+        Button {
+            showingSnippets = true
+            SoundEffects.shared.tap(.click, haptic: .light)
+        } label: {
+            Image(systemName: "text.badge.plus")
+                .font(.system(size: Theme.ui(15), weight: .semibold))
+                .foregroundStyle(Theme.sshAccent)
+                .frame(minWidth: Theme.ui(40), minHeight: Theme.ui(38))
+                .floatingGlass()
+        }
+        .buttonStyle(PressablePill(scale: 0.9))
+        .padding(.leading, 12)
+        .sheet(isPresented: $showingSnippets) {
+            SnippetsView(host: session.host) { snippet in
+                session.type(snippet.command)
+                if snippet.submits { session.press(.keyboardReturnOrEnter) }
+            }
         }
     }
 

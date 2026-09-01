@@ -309,17 +309,19 @@ struct HostOverviewView: View {
 
     @ViewBuilder
     private func bands(_ info: HostInfo) -> some View {
+        // The panel above already answers load, memory and disk at a glance.
+        // What belongs here is what it cannot fit: the full load triplet,
+        // which says whether a number is climbing or settling, and uptime.
+        // Repeating the headline underneath it made the screen look like it
+        // was reporting two different machines.
         Band("Vitals", reveal: 0) {
             if let uptime = info.uptime { Row("Uptime", uptime) }
             if let load = info.loadAvg {
                 Row("Load", String(format: "%.2f  %.2f  %.2f", load.0, load.1, load.2),
                     tint: HostHealth.overloaded(info) ? Theme.Status.danger : nil)
             }
-            if let cores = info.cores { Row("Cores", "\(cores)") }
             if let total = info.memTotalMB, let avail = info.memAvailMB, total > 0 {
-                Meter(label: "Memory",
-                      detail: "\(fmtMB(total - avail)) of \(fmtMB(total))",
-                      fraction: Double(total - avail) / Double(total))
+                Row("Memory", "\(fmtMB(total - avail)) of \(fmtMB(total)) used")
             }
         }
 
@@ -344,10 +346,13 @@ struct HostOverviewView: View {
 
         if let containers = info.containers, !containers.isEmpty {
             Band(info.containerRuntime?.displayName ?? "Containers", reveal: 0.12) {
-                ForEach(containers.prefix(10), id: \.name) { c in
+                ForEach(containers.prefix(40), id: \.name) { c in
                     ContainerRow(container: c,
                                  control: control(for: info.containerRuntime),
                                  onAsk: { action in pendingAction = (c.name, action) })
+                }
+                if containers.count > 40 {
+                    Row("", "+\(containers.count - 40) more")
                 }
             }
         }
@@ -712,7 +717,7 @@ private struct ContainerRow: View {
                                         : Theme.textSecondary.opacity(0.5))
                 .frame(width: 5, height: 5)
             Text(container.name)
-                .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
+                .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
             Spacer(minLength: 8)
@@ -721,7 +726,7 @@ private struct ContainerRow: View {
                 ProgressView().controlSize(.mini).tint(Theme.sshAccent)
             } else {
                 Text(container.status)
-                    .font(.system(size: Theme.ui(11), design: .rounded))
+                    .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
             }
@@ -741,12 +746,16 @@ private struct ContainerRow: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
-                        .font(.system(size: Theme.ui(14)))
+                        .font(.system(size: Theme.ui(17)))
                         .foregroundStyle(Theme.textSecondary)
+                        // A tap target, not a glyph: this row is the one
+                        // thing on the screen that does something.
+                        .frame(width: Theme.ui(40), height: Theme.ui(34))
+                        .contentShape(Rectangle())
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 5)
     }
 
     /// Offering "start" for something already running is an invitation to

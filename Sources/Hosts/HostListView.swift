@@ -128,8 +128,12 @@ struct HostListView: View {
             .navigationDestination(item: $contermOn) { ContermRemoteView(host: $0) }
             .navigationDestination(item: $overview) { host in
                 HostOverviewView(host: host) { target in
+                    // Pop, then push — on separate runloop turns. Doing both
+                    // in one tick makes the pop cancel the push and nothing
+                    // happens at all, which is exactly what "Open a shell"
+                    // did from the overview.
                     overview = nil
-                    open(target)
+                    Task { @MainActor in open(target) }
                 }
             }
     }
@@ -183,8 +187,17 @@ struct HostListView: View {
                 switch route {
                 case .palette:
                     CommandPalette(store: store,
-                                   onConnect: { host in self.route = nil; open(host) },
-                                   onOverview: { host in self.route = nil; overview = host },
+                                   // Same reason as the overview's shell
+                                   // button: dismissing and navigating in one
+                                   // tick lets one cancel the other.
+                                   onConnect: { host in
+                                       self.route = nil
+                                       Task { @MainActor in open(host) }
+                                   },
+                                   onOverview: { host in
+                                       self.route = nil
+                                       Task { @MainActor in overview = host }
+                                   },
                                    onNewHost: { self.route = .newHost },
                                    onQuickConnect: { self.route = .quickConnect },
                                    onImport: { self.route = nil; importing = true },

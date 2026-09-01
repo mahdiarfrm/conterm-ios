@@ -97,12 +97,18 @@ struct HostListView: View {
                 }
                 }
                 .frame(maxHeight: .infinity)
+                // On an iPad the same list stretched to 1024pt, which reads
+                // as a phone screen someone pulled at the corners: rows a
+                // metre wide with a status dot at one end and a chevron at
+                // the other. A column has a readable width whatever the
+                // window is.
+                .contermReadableColumn()
             }
             .background(Theme.appBackground.ignoresSafeArea())
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
-            .safeAreaInset(edge: .bottom) { paletteBar }
+            .safeAreaInset(edge: .bottom) { paletteBar.contermReadableColumn() }
             // One sheet, not six. SwiftUI attaches each `.sheet` modifier to
             // the same view, and only one of them reliably wins — stacking
             // them is why the search bar sometimes did nothing when tapped.
@@ -194,6 +200,7 @@ struct HostListView: View {
         .padding(.horizontal, 20)
         .padding(.top, 8)
         .padding(.bottom, 16)
+        .contermReadableColumn()
         .rollUp()
     }
 

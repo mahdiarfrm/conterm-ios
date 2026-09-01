@@ -9,6 +9,7 @@ struct TerminalScreen: View {
     var onNewShell: ((Host) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var finding = false
+    @State private var showingSnippets = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,6 +43,9 @@ struct TerminalScreen: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button("Snippets", systemImage: "text.badge.plus") {
+                        showingSnippets = true
+                    }
                     Button("Find in scrollback", systemImage: "magnifyingglass") {
                         finding = true
                     }
@@ -67,6 +71,15 @@ struct TerminalScreen: View {
             IdleTimer.terminalAppeared()
         }
         .onDisappear { IdleTimer.terminalDisappeared() }
+        .sheet(isPresented: $showingSnippets) {
+            SnippetsView(host: session.host) { snippet in
+                // Typed, not pasted, and submitted with a real Return — the
+                // same path a keyboard takes, so a snippet behaves exactly
+                // like having typed it.
+                session.type(snippet.command)
+                if snippet.submits { session.press(.keyboardReturnOrEnter) }
+            }
+        }
     }
 }
 

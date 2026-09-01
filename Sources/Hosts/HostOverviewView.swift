@@ -20,6 +20,11 @@ struct HostOverviewView: View {
     var injected: HostProbeModel?
 
     @State private var probe: HostProbeModel?
+    @State private var containers: ContainerControl?
+    /// A disruptive action waiting on a confirmation. The tuple is the
+    /// container and what is about to happen to it, which is exactly what the
+    /// alert has to name.
+    @State private var pendingAction: (name: String, action: ContainerControl.Action)?
     @State private var failure: String?
 
     var body: some View {
@@ -67,6 +72,30 @@ struct HostOverviewView: View {
         .safeAreaInset(edge: .bottom) { openShellBar }
         .navigationDestination(isPresented: $showingAgents) { AgentCenterView(host: host) }
         .refreshable { refresh() }
+        // Named, not "Continue". A confirmation whose button says the act is
+        // one you read; a confirmation whose button says "OK" is one you tap.
+        .alert(pendingAction.map { "\($0.action.title) \($0.name)?" } ?? "",
+               isPresented: Binding(get: { pendingAction != nil },
+                                    set: { if !$0 { pendingAction = nil } })) {
+            Button("Cancel", role: .cancel) { pendingAction = nil }
+            Button(pendingAction?.action.title ?? "OK", role: .destructive) {
+                guard let pending = pendingAction, let containers else { return }
+                pendingAction = nil
+                Haptics.shared.fire(.warning)
+                Task { await containers.perform(pending.action, on: pending.name) }
+            }
+        } message: {
+            if containers?.isProduction == true {
+                Text("This host looks like production.")
+            }
+        }
+        .alert("Container", isPresented: Binding(
+            get: { containers?.failure != nil },
+            set: { if !$0 { containers?.clearFailure() } })) {
+            Button("OK") { containers?.clearFailure() }
+        } message: {
+            Text(containers?.failure ?? "")
+        }
         .task { start() }
     }
 
@@ -110,6 +139,17 @@ struct HostOverviewView: View {
         probe = HostProbeModel(address: host.address,
                                runner: SSHCommandRunner(host: host, credentials: credentials,
                                                         policy: .ask))
+    }
+
+    /// The controller, built lazily and only when there is something to
+    /// control — most hosts have no container runtime at all.
+    private func control(for runtime: ContainerRuntime?) -> ContainerControl? {
+        guard let runtime else { return nil }
+        if let containers { return containers }
+        guard let credentials = KeyStore.shared.credentials(for: host) else { return nil }
+        let made = ContainerControl(host: host, credentials: credentials, runtime: runtime)
+        Task { @MainActor in containers = made }
+        return made
     }
 
     // MARK: - Header
@@ -305,20 +345,9 @@ struct HostOverviewView: View {
         if let containers = info.containers, !containers.isEmpty {
             Band(info.containerRuntime?.displayName ?? "Containers", reveal: 0.12) {
                 ForEach(containers.prefix(10), id: \.name) { c in
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(c.running ? Theme.Status.ready : Theme.textSecondary.opacity(0.5))
-                            .frame(width: 5, height: 5)
-                        Text(c.name)
-                            .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
-                            .foregroundStyle(Theme.textPrimary)
-                        Spacer(minLength: 8)
-                        Text(c.status)
-                            .font(.system(size: Theme.ui(11), design: .rounded))
-                            .foregroundStyle(Theme.textSecondary)
-                            .lineLimit(1)
-                    }
-                    .padding(.vertical, 2)
+                    ContainerRow(container: c,
+                                 control: control(for: info.containerRuntime),
+                                 onAsk: { action in pendingAction = (c.name, action) })
                 }
             }
         }
@@ -662,5 +691,67 @@ private struct FlowLayout: Layout {
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
         }
+    }
+}
+
+/// One container, with the two or three things you would do to it.
+///
+/// Start is immediate; stop and restart ask first. A running container is
+/// serving something, and on a phone the targets are small and one-handed —
+/// a confirmation there is not politeness, it is the only thing between a
+/// mis-scroll and an outage.
+private struct ContainerRow: View {
+    let container: HostInfo.Container
+    let control: ContainerControl?
+    let onAsk: (ContainerControl.Action) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(container.running ? Theme.Status.ready
+                                        : Theme.textSecondary.opacity(0.5))
+                .frame(width: 5, height: 5)
+            Text(container.name)
+                .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+
+            if control?.busy.contains(container.name) == true {
+                ProgressView().controlSize(.mini).tint(Theme.sshAccent)
+            } else {
+                Text(container.status)
+                    .font(.system(size: Theme.ui(11), design: .rounded))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            if let control {
+                Menu {
+                    ForEach(available, id: \.self) { action in
+                        Button(action.title, systemImage: action.symbol,
+                               role: action.isDisruptive ? .destructive : nil) {
+                            if action.isDisruptive {
+                                onAsk(action)
+                            } else {
+                                Haptics.shared.fire(.light)
+                                Task { await control.perform(action, on: container.name) }
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: Theme.ui(14)))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// Offering "start" for something already running is an invitation to
+    /// find out what happens, which is not what this screen is for.
+    private var available: [ContainerControl.Action] {
+        container.running ? [.restart, .stop] : [.start]
     }
 }

@@ -82,8 +82,74 @@ struct HostListView: View {
         }
     }
 
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
     var body: some View {
-        NavigationStack {
+        Group {
+            if sizeClass == .regular {
+                // On an iPad the list is a sidebar and the session lives
+                // beside it, which is the whole reason to use a tablet for
+                // this: you can watch a build and pick the next host without
+                // one replacing the other.
+                NavigationSplitView {
+                    sidebar
+                } detail: {
+                    NavigationStack { destinations(detailPlaceholder) }
+                }
+                .navigationSplitViewStyle(.balanced)
+            } else {
+                NavigationStack { destinations(sidebar) }
+            }
+        }
+        .tint(Theme.accentOnDark)
+        // Sessions that died keep their terminal readable while it is open;
+        // once you are back here they are just clutter.
+        .onAppear { sessions.pruneDead() }
+        // Browsing is a multicast listener; it runs while this screen is up
+        // and not a moment longer.
+        .onAppear { nearby.start() }
+        .onDisappear { nearby.stop() }
+    }
+
+    /// The four things this screen can push, attached to whichever column
+    /// owns navigation — the stack itself on a phone, the detail column on a
+    /// tablet. Written once because they are the same destinations either
+    /// way; only the place they land differs.
+    @ViewBuilder
+    private func destinations<Content: View>(_ content: Content) -> some View {
+        content
+            .navigationDestination(item: $session) { live in
+                TerminalScreen(session: live) { host in
+                    session = nil
+                    openNew(host)
+                }
+            }
+            .navigationDestination(item: $agentsFor) { AgentCenterView(host: $0) }
+            .navigationDestination(item: $contermOn) { ContermRemoteView(host: $0) }
+            .navigationDestination(item: $overview) { host in
+                HostOverviewView(host: host) { target in
+                    overview = nil
+                    open(target)
+                }
+            }
+    }
+
+    /// What the detail column shows before you have picked anything. A blank
+    /// half-screen reads as a bug; this reads as an invitation.
+    private var detailPlaceholder: some View {
+        VStack(spacing: 12) {
+            ContermWordmark(height: Theme.ui(34))
+                .foregroundStyle(Theme.textSecondary.opacity(0.55))
+            Text(store.hosts.isEmpty ? "Add a host to get started"
+                                     : "Pick a host to open a shell")
+                .font(.system(size: Theme.ui(14), weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.appBackground.ignoresSafeArea())
+    }
+
+    private var sidebar: some View {
             VStack(spacing: 0) {
                 brandHeader
                 Group {
@@ -150,34 +216,11 @@ struct HostListView: View {
             .fileImporter(isPresented: $importing,
                           allowedContentTypes: [.item],
                           allowsMultipleSelection: false) { importConfig($0) }
-            .navigationDestination(item: $session) { live in
-                TerminalScreen(session: live) { host in
-                    session = nil
-                    openNew(host)
-                }
-            }
-            .navigationDestination(item: $agentsFor) { AgentCenterView(host: $0) }
-            .navigationDestination(item: $contermOn) { ContermRemoteView(host: $0) }
-            .navigationDestination(item: $overview) { host in
-                HostOverviewView(host: host) { target in
-                    overview = nil
-                    open(target)
-                }
-            }
             .alert("Import", isPresented: .constant(notice != nil)) {
                 Button("OK") { notice = nil }
             } message: {
                 Text(notice ?? "")
             }
-        }
-        .tint(Theme.accentOnDark)
-        // Sessions that died keep their terminal readable while it is open;
-        // once you are back here they are just clutter.
-        .onAppear { sessions.pruneDead() }
-        // Browsing is a multicast listener; it runs while this screen is up
-        // and not a moment longer.
-        .onAppear { nearby.start() }
-        .onDisappear { nearby.stop() }
     }
 
     private var brandHeader: some View {

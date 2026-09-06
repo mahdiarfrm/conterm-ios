@@ -209,7 +209,11 @@ final class ContermRemoteLink {
 
     func send(_ command: Command) async {
         guard let connection else { return }
-        guard let payload = try? JSONEncoder().encode(command) else { return }
+        let encoder = JSONEncoder()
+        // The Mac reads either shape, but ISO-8601 keeps an inbox file
+        // legible when one has to be read by hand.
+        encoder.dateEncodingStrategy = .iso8601
+        guard let payload = try? encoder.encode(command) else { return }
         // base64 rather than a heredoc: the command carries arbitrary user
         // text, and the one thing that must never happen is a quote in a
         // reply turning into shell syntax on someone's Mac.
@@ -232,6 +236,10 @@ final class ContermRemoteLink {
         var text: String?
         var submit: Bool?
         var windowIndex: Int?
+        /// Stamped at send. The Mac drops anything older than a minute: a
+        /// command written while it was asleep should not be typed into a
+        /// terminal whenever the lid next opens.
+        var sentAt: Date = Date()
 
         enum Action: String, Codable, Sendable {
             case refresh

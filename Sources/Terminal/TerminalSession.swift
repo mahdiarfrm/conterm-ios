@@ -328,7 +328,8 @@ final class TerminalSession: Identifiable, Hashable {
         }
     }
 
-    /// Try again right now, because the user asked.
+    /// Reconnect immediately, skipping whatever is left of the backoff
+    /// schedule. Driven by the manual Reconnect action.
     func reconnect() {
         guard credentials != nil else { return }
         userClosed = false

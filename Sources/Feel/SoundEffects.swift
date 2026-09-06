@@ -322,7 +322,7 @@ final class Haptics {
         UserDefaults.standard.object(forKey: prefKey) as? Bool ?? true
     }
 
-    /// One tap per typed character, if the user asked for it.
+    /// One tap per typed character, when the typing-haptic preference is on.
     ///
     /// Its own generator, prepared and reused: a keyboard fires this dozens
     /// of times a sentence, and building an impact generator per keystroke is

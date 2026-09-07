@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/banner.png" alt="Conterm for iOS — a modern way to connect" width="100%" />
+  <img src="docs/assets/banner.png" alt="Conterm for iOS" width="100%" />
 </p>
 
 <p align="center">
@@ -11,27 +11,25 @@
 
 <p align="center">
   <a href="https://github.com/mahdiarfrm/conterm"><b>Conterm for macOS</b></a> ·
-  <a href="#building-from-source">Build it</a> ·
-  <a href="https://github.com/mahdiarfrm/conterm-ios/issues">Report a bug</a>
+  <a href="#building-from-source">Build from source</a> ·
+  <a href="https://github.com/mahdiarfrm/conterm-ios/issues">Issues</a>
 </p>
 
-**Conterm for iOS** is an SSH client built on
-[Ghostty's](https://github.com/ghostty-org/ghostty) terminal engine, in the
-design language of [Conterm](https://github.com/mahdiarfrm/conterm). Real VT
-emulation and GPU rendering on a phone, a briefing screen for any host you
-connect to, a command center for AI coding agents running on your machines,
-and widgets that put all of it on the Lock Screen.
+**Conterm for iOS** is an SSH client for iPhone and iPad built on
+[Ghostty's](https://github.com/ghostty-org/ghostty) terminal engine. It
+provides full VT emulation with GPU rendering, a diagnostics view for
+connected hosts, monitoring and reply for AI coding agents running on remote
+machines, and Home Screen, Lock Screen and Dynamic Island widgets.
 
-It is not a port of the Mac app. Conterm's lane is *ambient awareness and
-safety* — see it, feel prod, get told — and several of those ideas are better
-on a phone than on a desktop, because "did the 3am job run?" and "is that box
-OK?" are questions you ask while away from the machine.
+It shares a design system with
+[Conterm for macOS](https://github.com/mahdiarfrm/conterm) but is a separate
+application, not a port.
 
 > Conterm is an independent frontend built on **libghostty**, with local
-> patches that make a pty-less terminal possible on iOS at all. It is not
+> patches that make a terminal without a pty possible on iOS. It is not
 > affiliated with, endorsed by, or sponsored by the Ghostty project. The
-> terminal engine — parsing, scrollback, selection, search, fonts and GPU
-> rendering — is Ghostty's, MIT-licensed. Full third-party notices are in
+> terminal engine (parsing, scrollback, selection, search, fonts and GPU
+> rendering) is Ghostty's, under the MIT licence. Third-party notices are in
 > [NOTICE.md](NOTICE.md).
 
 ## Contents
@@ -40,214 +38,201 @@ OK?" are questions you ask while away from the machine.
 - [Requirements](#requirements)
 - [Building from source](#building-from-source)
 - [Testing](#testing)
-- [How it fits together](#how-it-fits-together)
-- [Layout](#layout)
-- [Design](#design)
+- [Architecture](#architecture)
+- [Repository layout](#repository-layout)
 - [License](#license)
 
 ## Features
 
 ### Terminal
 
-- **Ghostty's engine, not a reimplementation** — VT parsing, scrollback,
-  selection, wide glyphs and ligatures, and Metal rendering all come from
-  libghostty. `vi`, `htop`, `tmux` and anything else full-screen work because
-  the emulator is the real one.
-- **Sessions outlive their screen** — a terminal is a process you leave
-  running, not a page you visit. Navigating back keeps the shell; a stray back
-  swipe will not kill a `tail -f`. Several shells per host, each with its own
-  verb, so tapping a host always resumes rather than silently dialling again.
-- **An accessory row sized for a phone** — `ctrl` and `alt` latch visibly,
-  `esc`, `tab`, all four arrows and the punctuation a shell needs fit a 402pt
-  screen at once, and a pinned key puts the keyboard away, because half the
-  screen back is worth a lot when you are reading a log. The keys are painted
-  in the terminal's own bed colour so the strip disappears.
-- **Find in scrollback** — the engine's own search, driven through the same
-  keybind action the desktop uses, so it finds a line that scrolled off an
-  hour ago rather than one that happens to still be on screen. Matches are
-  highlighted by the renderer and stepping one scrolls it in.
-- **Touch scrolling that tracks your finger** — one-to-one, with a decaying
-  flick, at the panel's real refresh rate rather than capped at 60Hz.
-- **Keystrokes are keystrokes** — every character goes through the key path
-  with a real keycode, never the paste path, which replaces control bytes with
-  spaces. That is the difference between `:q!` leaving vim and `:q!` being
-  typed into your file.
+- Full VT emulation through libghostty: parsing, scrollback, selection, wide
+  glyphs, ligatures and Metal rendering. Full-screen applications such as
+  `vi`, `htop` and `tmux` behave as they do in a desktop terminal.
+- Sessions are held in a store keyed by host and outlive the screen that shows
+  them. Leaving the terminal view does not close the shell, and a host can have
+  several concurrent shells.
+- A key accessory row above the software keyboard: latching `ctrl` and `alt`,
+  `esc`, `tab`, the four arrow keys, and the punctuation a shell needs
+  (`/ - | ~`), plus keys to open snippets and dismiss the keyboard.
+- Find in scrollback using libghostty's own search, which covers the whole
+  buffer and not only the visible viewport. Matches are highlighted by the
+  renderer, and stepping through them scrolls the match into view.
+- Touch scrolling at 1:1 tracking with momentum, at the display's native
+  refresh rate, which is 120 Hz on ProMotion devices.
+- Characters are delivered through the key path with real keycodes, not the
+  paste path. Control bytes therefore survive, and applications using
+  bracketed paste receive keystrokes as keystrokes.
 
 ### Hosts
 
-- **Import your `~/.ssh/config`** — a real parser: `Include` is followed,
-  globs are matched the way ssh matches them, and `Match` blocks are skipped
-  rather than silently misapplied. A fleet arrives in one step instead of
-  twelve forms.
-- **Groups** — colour-coded, collapsible, ported from the Mac app's tab
-  groups. Membership lives on the host and definitions live in their own file,
-  so a group can be renamed or recoloured without rewriting a single host, and
-  deleting one frees its hosts rather than taking them with it.
-- **Keys are their own thing** — you have one `id_rsa` and twelve machines
-  that accept it, so a host references a key by id and the material lives in
-  the Keychain. Import from Files (iCloud Drive included); format and
-  encryption are detected up front, so you are only asked for a passphrase
-  when the key has one, and handing it an `id_rsa.pub` says so at import
-  rather than as an auth failure days later.
-- **Nearby** — Macs running Conterm advertise over Bonjour and appear above
-  your saved hosts while the list is on screen. Tapping one opens the editor
-  prefilled. A Mac with Remote Login off says so, and where to turn it on.
-- **Quick Connect** — `user@host`, nothing saved.
+- **ssh_config import.** Parses `~/.ssh/config`, follows `Include` directives
+  and applies ssh-style glob patterns. `Match` blocks are skipped, not
+  partially applied.
+- **Groups.** Colour-coded and collapsible. Membership is stored on the host
+  and definitions in a separate file. Renaming or recolouring a group does not
+  rewrite host records, and deleting a group does not delete its hosts.
+- **Key library.** Private keys are imported from Files, stored in the
+  Keychain and referenced by identifier, which lets one key serve many hosts.
+  Format (OpenSSH, PKCS#1 RSA/EC/DSA, PKCS#8) and encryption are detected at
+  import, and a passphrase is requested only for an encrypted key.
+- **Nearby.** Discovers Macs running Conterm over Bonjour (`_conterm._tcp`)
+  while the host list is on screen, and prefills the host editor from the
+  advertised record. Browsing stops when the list is dismissed.
+- **Quick Connect** for one-off `user@host` connections that are not saved.
 
-### Host Overview
+### Host overview
 
-The answer to "is that box OK?", gathered in one key-authenticated SSH round
-trip and led by a panel that always shows load, memory and disk in the same
-three places, under a status gem that sums the machine.
+A diagnostics screen for a host, collected in a single SSH round trip. The
+header panel carries load, memory and disk under a summary status indicator;
+the sections below hold the detail.
 
-Underneath: uptime and the full load triplet, every mount, network, containers
-and VMs, Kubernetes workloads, failed units, the busiest processes, and recent
-journal and kernel errors. A cached snapshot renders instantly while a fresh
-probe runs behind it, and the screen says how old the numbers are rather than
-presenting a stale reading as live. It leads somewhere too — an *Open a shell*
-bar, so a briefing that finds a problem does not make you go back and find the
-host again.
+| Section | Contents |
+|---------|----------|
+| Vitals | uptime, full load triplet, memory |
+| Disks | usage per mount |
+| Network | interfaces and addresses |
+| Workloads | containers, VMs, Kubernetes |
+| Health | failed systemd units |
+| Busiest | top processes by CPU and memory |
+| Recent errors | journal and kernel messages |
 
-**Containers you can act on** — running containers across Docker, Podman,
-containerd and Apple's `container`, in one list. Start is immediate; stop and
-restart ask first, and the button names the act — *Restart web*, never
-*Continue* — because a confirmation whose button says OK is one you tap rather
-than read. A host whose name looks like production says so in the message.
+A cached result renders immediately while a fresh probe runs, and the screen
+reports the age of the data it is showing. Pull to refresh; *Open a shell*
+connects to the host from the overview.
+
+Containers across Docker, Podman, containerd and Apple's `container` are
+listed together and can be started, stopped and restarted. Stop and restart
+require confirmation. The confirmation names the container and the action, and
+flags hosts whose names match production patterns.
 
 ### Agent Center
 
-Conterm on macOS reads Claude Code's transcripts off local disk. Here they are
-on the far end of an SSH connection and there are hundreds of megabytes of
-them, so the work is split at the seam that makes both halves cheap: the
-remote reads only the bytes appended since last time and emits one short line
-per assistant message, and the phone keeps the offsets and does the
-accumulation. `awk`, because it is the only thing guaranteed to exist on a box
-that happens to run Claude Code.
+Monitors [Claude Code](https://www.anthropic.com/claude-code) sessions running
+on remote hosts over SSH.
 
-A bounded tail read paints the roster in under a second; the usage pass fills
-in cost, burn rate, tokens and model behind it. Sorted needs-you first,
-because the only urgent question on a phone is whether anything is waiting.
+Transcripts stay on the host. The remote collector reads only the bytes
+appended since the last poll and emits one line per assistant message; the
+client keeps the file offsets and accumulates state locally. The collector is
+written in `awk`, so the host needs neither `jq` nor Python. A bounded tail
+read populates the session list in about a second and a second pass fills in
+usage figures. Steady-state cost is roughly 0.6 s of host CPU per poll.
 
-**And you can answer.** Over SSH there is no pty to type into — unless the
-agent runs under a multiplexer, which is how anyone leaves one running. The
-collector lists tmux panes and encodes each one's working directory the way
-Claude Code encodes a project directory, so the match is a string comparison
-rather than a guess. Text and Return go as two separate `send-keys`, because a
-trailing newline is pasted, not submitted.
+Reported per session: project, branch, working directory, model, phase, token
+usage, cost and burn rate. Sessions waiting for input sort first.
 
-### Your Mac, from the phone
+Sessions running under tmux can be replied to. The collector lists tmux panes
+and encodes each pane's working directory the way Claude Code encodes a
+project directory, making the match an exact string comparison. Reply text and
+Return are sent as two separate `send-keys` invocations, because a trailing
+newline is treated as pasted input and not as a submission.
 
-The Mac app publishes its state to a file; the phone reads it over the SSH
-connection it already has. No listening port on your laptop, no firewall
-prompt, no authentication scheme invented from scratch, and it works from
-anywhere you can reach the machine — including through a jump host.
+### Conterm on macOS
 
-- **Live, not polled** — one channel stays open on the pooled connection and a
-  small loop on the Mac writes only when the state actually changes. Nothing
-  crosses the network while nothing is happening; a change lands in about
-  300ms. The loop's heartbeat is one byte every three seconds and its real job
-  is dying: with the phone gone the write takes `SIGPIPE`, so leaving the
-  screen cleans up after itself.
-- **Windows, tabs, groups and panes** — each pane's working directory, which
-  ones are SSH'd where, and what any agent in them is doing.
-- **A closed set of five commands** — tap a pane to bring it forward, or reply
-  to an agent that is waiting. Not arbitrary shell: the honest limit is not
-  "don't act", it is "act only in ways the keyboard could". Commands travel
-  base64-encoded and land via a temp file and a rename, so a reply containing
-  a quote cannot become shell syntax on the other end and the Mac can never
-  read half a file.
-- **A snapshot that stopped updating says so**, with its age, rather than
-  presenting dead tabs as live.
+Reads the state file published by the macOS app over the SSH connection that
+is already open, rather than over a network service. This needs no listening
+port on the Mac and works anywhere the machine is reachable, including through
+a jump host.
+
+- **Transport.** One long-lived channel on the pooled connection. A loop on
+  the Mac watches the state file's mtime and writes only on change; typical
+  latency is around 300 ms. A three-second heartbeat makes the loop exit on
+  `SIGPIPE` when the client disconnects.
+- **Contents.** Windows, tabs, tab groups, and each pane's working directory,
+  SSH target and agent state.
+- **Control.** A fixed set of five commands, including focusing a pane and
+  replying to a waiting agent. Arbitrary shell is not among them. Commands are
+  base64-encoded and delivered through a temporary file and an atomic rename,
+  so payload text cannot be interpreted as shell syntax and the Mac never
+  reads a partial file. Each command carries a send timestamp and is discarded
+  by the Mac if it is more than a minute old.
+- **Staleness.** A snapshot that has stopped updating is labelled with its
+  age, not presented as current.
 
 ### Widgets, Lock Screen and Dynamic Island
 
-Six faces on one design and one data contract, each answering one more
-question than the last: inline whether anything is running, circular how many
-and whether anything is wrong, rectangular which one and how long, small the
-session you are in, medium the rest of the fleet, large what wants you.
+Six widget families over one data contract:
 
-New features reach the home screen by emitting a `Signal` — a small uniform
-thing with a kind, a title and a weight — which every face with room already
-knows how to draw, ranked. Agents waiting on your Mac arrive that way today.
+| Family | Shows |
+|--------|-------|
+| inline | whether anything is running |
+| circular | how many sessions, and whether any need attention |
+| rectangular | the active session and its uptime |
+| small | the current session in detail |
+| medium | the current session and the rest of the fleet |
+| large | the above, plus outstanding signals |
 
-The Dynamic Island carries a running session while you are in another app:
-compact, a status gem and the host; expanded and on the Lock Screen, where it
-is, what state it is in, how much has come back, and an elapsed timer the
-system draws itself so it ticks without spending a refresh. Updates are
-deliberately sparse — a terminal under `yes` would otherwise burn the Live
-Activity budget in seconds and go stale exactly when something happened.
+Widgets are driven by `ContermSnapshot.Signal`, a uniform record with a kind,
+a title and a weight. Every family with room renders signals in weight order,
+so adding one takes an enum case and a line in `WidgetBridge`, with no layout
+change. Agents waiting on a connected Mac are published this way.
 
-See [docs/WIDGETS.md](docs/WIDGETS.md) for the design system and how to add to
+A Live Activity carries a running session while the app is backgrounded. The
+compact Dynamic Island shows status and host; the expanded and Lock Screen
+presentations add session state, throughput and a system-drawn elapsed timer.
+Updates are throttled to stay inside the Live Activity refresh budget.
+
+See [docs/WIDGETS.md](docs/WIDGETS.md) for the design system and how to extend
 it.
 
 ### Command palette
 
-On a Mac the palette is a shortcut; on a phone it is the primary way to get
-anywhere, because every other navigation affordance costs screen. So it lives
-in a persistent bar with touch-sized rows, and one query reaches your hosts,
-their overviews, Quick Connect, ssh-config import, the key library, and a live
-calculator — arithmetic, `0x`/`0b`/`0o` literals, re-basing and unit
-conversions. Ranked by how often and how recently you use each thing.
+A persistent search bar over saved hosts, host overviews, Quick Connect,
+ssh_config import and the key library, with an inline calculator supporting
+arithmetic, `0x`/`0b`/`0o` literals, base conversion, and unit conversion
+across data sizes, time, length, mass, volume and temperature. Results are
+ranked by frequency and recency of use.
 
 ### Snippets
 
-The largest cost of a terminal on a phone is not the screen, it is the
-keyboard: `docker compose logs -f --tail=100 web` is thirty-nine characters of
-punctuation on a surface with no home row. Saved commands, one tap, scoped to
-a host or kept everywhere. Typed rather than pasted and submitted with a real
-Return, so a snippet behaves exactly like having typed it — and `submits` can
-be off for one you want to finish by hand. They live on a key in the accessory
-row, where the thumb already is.
+Saved commands, scoped to a single host or available everywhere, opened from a
+key on the accessory row. A snippet is typed into the session and submitted
+with a Return keypress rather than pasted, so it behaves identically to manual
+input. A snippet can be marked as not self-submitting, which types the command
+and leaves it for editing. Eight read-only starters ship with the app.
 
 ### iPad
 
-A real split view: the host list is a sidebar and the session lives beside it,
-which is the whole reason to use a tablet for this — you can watch a build and
-pick the next host without one replacing the other. The four destinations are
-written once and attached to whichever column owns navigation, so the phone
-and tablet layouts cannot drift into two copies of a screen.
+`NavigationSplitView` with the host list in the sidebar and the session in the
+detail column. The four navigation destinations are declared once and attached
+to whichever column owns navigation for the current size class. The phone and
+tablet layouts share one definition. Content is width-limited on large
+displays; the terminal is exempt, since width there is columns.
 
 ### Settings
 
-Seven things, each of which changes something you can point at: how wide a new
-terminal aims to be — the font size follows from it and the screen — whether
-the screen stays awake, sound effects, haptics, a separate typing haptic, the
-launch animation, and one interface-size slider that scales the chrome around
-the terminal and never the terminal itself.
-
-Laid out as typographic bands rather than grouped boxes, because on a phone a
-card inside a sheet inside a rounded window is three borders deep before any
-content.
+Terminal width in columns (font size is derived from this and the screen
+width), keep screen awake, sound effects, haptics, typing haptics, launch
+animation, and an interface scale that affects the chrome around the terminal
+but not the terminal itself.
 
 ### Security
 
-- **Host keys are verified.** Trust-on-first-use asks once, showing the
-  fingerprint grouped in fours so it can be compared against `ssh-keyscan`. A
-  changed key is refused outright, with no *continue anyway*: a rebuilt server
-  and an attacker are indistinguishable from here, so forgetting a key lives
-  in the host's editor, as something you go and do on purpose. Verification is
-  opt-out rather than opt-in — the connection consults the trust store itself,
-  so a call site cannot forget.
-- **Background work can never raise the prompt.** Probes, Agent Center and the
-  Mac reader are refused instead. A fingerprint dialog that appears without a
-  gesture behind it is one people learn to tap through.
-- **Private keys live in the Keychain**, referenced by id, never copied into a
-  host record.
+- **Host key verification** is performed by the connection rather than by its
+  callers, so it cannot be omitted at a call site. Trust on first use presents
+  the SHA-256 fingerprint in four-character groups for comparison against
+  `ssh-keyscan`. A changed host key is rejected with no override; clearing a
+  stored key is an explicit action in the host editor.
+- **Background connections** (host probes, Agent Center and the macOS reader)
+  never raise the trust prompt. They fail instead. The prompt appears only for
+  a connection the user initiated.
+- **Private key material** is stored in the Keychain under the key's own
+  identifier and is never copied into a host record.
 
 ## Requirements
 
-- **iOS / iPadOS 18** or later, iPhone and iPad.
-- **Xcode 26** and its Command Line Tools, to build.
-- An Apple Developer account for signing — the App Group the widget extension
-  needs (`group.dev.conterm.ios`) has to be registered on the App ID, which
-  only happens when Xcode can reach Apple.
+| | |
+|---|---|
+| Runtime | iOS / iPadOS 18 or later, iPhone and iPad |
+| Build | Xcode 26 and its Command Line Tools |
+| Signing | An Apple Developer account. The App Group used by the widget extension (`group.dev.conterm.ios`) must be registered on the App ID, which requires Xcode to be signed in. |
 
-There is no App Store build. This is source you compile and run on your own
+There is no App Store build. This is source to compile and run on your own
 device.
 
 ## Building from source
 
-Both native dependencies build from source; neither is checked in.
+Both native dependencies are built from source; neither is checked in.
 
 ```bash
 git clone https://github.com/mahdiarfrm/conterm-ios.git
@@ -258,12 +243,13 @@ bash scripts/build-libssh2.sh           # OpenSSL + libssh2, device and simulato
 open Conterm.xcodeproj
 ```
 
-`build-ghostty.sh` fetches the pinned Zig toolchain itself — pin constants
-live in `scripts/ghostty-pin.sh` — and verifies that every slice actually
-exports `_ghostty_surface_write_output`. A build where the patches silently
-failed to apply otherwise shows up much later, as a terminal that stays black.
+`build-ghostty.sh` fetches the pinned Zig toolchain itself, using the constants
+in `scripts/ghostty-pin.sh`, and verifies that every slice of the resulting
+xcframework exports `_ghostty_surface_write_output`. Without that check, a
+build in which the patches failed to apply would only reveal the problem much
+later, as a terminal that renders nothing.
 
-Running on a device also needs the iOS platform bundle, which Xcode 26 does
+Running on a device also requires the iOS platform bundle, which Xcode 26 does
 not install by default:
 
 ```bash
@@ -272,44 +258,44 @@ xcodebuild -downloadPlatform iOS
 
 ## Testing
 
-The suite runs against a real SSH daemon rather than a mock, because the
-transport spent most of its life having never met one.
+The suite runs against a real SSH daemon, not a mock.
 
 ```bash
 bash scripts/test-host.sh    # throwaway sshd: own host key, client key, config
 bash scripts/selftest.sh     # build, install, run the suite
 ```
 
-`test-host.sh` stands up an sshd from nothing under `.test-host/`, running as
-you and touching nothing outside it. `selftest.sh` builds, installs and runs
-against it, on the simulator or on a connected iPhone — on device the key
-travels in the environment, since the phone cannot read the Mac's filesystem.
+`test-host.sh` starts an sshd under `.test-host/`, running as the current user
+and writing nothing outside that directory. `selftest.sh` builds, installs and
+runs the suite against it, on the simulator or on a connected iPhone; on a
+device the key is passed in the environment instead of by path.
 
-What it covers: host-key refusal for an unknown and a changed key, connection
-phases and latency, multiplexed commands, the pty matching the grid and
-resizes reaching the far end, a 200KB flood arriving whole, full-screen apps
-drawing and *exiting*, UTF-8 and wide glyphs, punctuation, scroll tracking
-measured in rows moved per screen dragged, and the Mac link's round trip end
-to end with hostile text in it.
+Coverage includes host key rejection for unknown and changed keys, connection
+phases and latency, multiplexed commands, pty geometry matching the grid,
+resizes reaching the remote, a 200 KB flood arriving intact, full-screen
+applications drawing and exiting, UTF-8 and wide glyphs, punctuation, scroll
+tracking measured in rows moved per screen dragged, and an end-to-end round
+trip of the macOS link including adversarial payload text.
 
-Harnesses for the parts a test cannot assert, each opening one screen against
-the throwaway host:
+Three harnesses open a single screen against the test host, for cases a unit
+test cannot assert:
 
-```
-CONTERM_DEMO=1       render check: surface, bytes in, distinct pixels out
-CONTERM_OVERVIEW=1   Host Overview against a live host
-CONTERM_WIDGETS=1    every widget face at its real size
-```
+| Environment variable | Opens |
+|---|---|
+| `CONTERM_DEMO=1` | render check: surface, bytes in, distinct pixels out |
+| `CONTERM_OVERVIEW=1` | host overview against a live host |
+| `CONTERM_WIDGETS=1` | every widget family at its real size |
 
-## How it fits together
+## Architecture
 
-iOS forbids `fork`, `exec` and pty allocation, so a terminal there cannot own
-a process — it has to be fed. Upstream libghostty has exactly one termio
-backend and it spawns a child on a pty, and its C API has no way to push bytes
-into a surface from outside.
+iOS does not permit `fork`, `exec` or pty allocation, so a terminal on the
+platform cannot own a process and must be fed bytes from outside. Upstream
+libghostty has a single termio backend, which spawns a child on a pty, and its
+C API provides no way to push bytes into a surface externally.
 
-`patches/ghostty/` adds both: a `termio.External` backend whose bytes come
-from the embedder, and `ghostty_surface_write_output` to deliver them.
+`patches/ghostty/` adds both: a `termio.External` backend that takes its bytes
+from the embedder, and a `ghostty_surface_write_output` entry point to deliver
+them.
 
 ```
 output   SSH bytes → ghostty_surface_write_output() → VT parse → Metal
@@ -320,37 +306,38 @@ resize   layoutSubviews → ghostty_surface_set_size()
                         → resize_callback → libssh2_channel_request_pty_size
 ```
 
-Ghostty owns VT parsing, scrollback, selection, search, fonts and GPU
-rendering. Swift is a byte pump plus the product around it.
+libghostty owns VT parsing, scrollback, selection, search, fonts and GPU
+rendering. The Swift layer moves bytes and provides the application around it.
 
-### The libxev fix
+### The libxev patch
 
-`patches/libxev/` fixes a second, quieter blocker. libghostty wakes its
-renderer and IO threads with `xev.Async`, which on Darwin is a mach port
-watched by `EVFILT_MACHPORT` — and the revision ghostty pins gates that kevent
-on `os.tag == .macos`, so on iOS the wait is never armed. `notify()` still
-reports success (the port's queue limit is 1, so every send after the first
-undelivered one returns `SEND_TIMED_OUT`, which libxev treats as "it will wake
-up"), and the renderer thread parks in `kevent64` at startup and never
-rebuilds a cell again. The terminal draws its background colour and nothing
-else, forever, with no error anywhere.
+libghostty wakes its renderer and IO threads with `xev.Async`, which on Darwin
+is a mach port watched by `EVFILT_MACHPORT`. The libxev revision Ghostty pins
+gates that kevent registration on `os.tag == .macos`, so on iOS the wait is
+never armed. `notify()` still reports success, because the port's queue limit
+is 1, so every send after the first undelivered one returns `SEND_TIMED_OUT`,
+which libxev treats as an indication that the port will wake. The renderer
+thread therefore parks in `kevent64` at startup and never rebuilds a cell. The
+failure mode is a terminal that draws its background colour and nothing else,
+with no error reported anywhere.
 
-Upstream fixed this in libxev@`7bf2b2f`; the patch is that commit applied to
-the pinned revision, and `build-ghostty.sh` vendors libxev into the checkout
-so the fix survives.
+Upstream fixed this in libxev `7bf2b2f`. `patches/libxev/` is that commit
+applied to the pinned revision, and `build-ghostty.sh` vendors libxev into the
+checkout so the fix is not lost to a dependency fetch.
 
-### Why libssh2, not SwiftNIO SSH
+### SSH transport
 
-SwiftNIO SSH implements modern primitives only — Ed25519 and ECDSA keys,
-AES-GCM, curve25519 kex. A stock `id_rsa`, an RSA host key, or a server
-negotiating `aes256-ctr` simply fails to connect, which for an SSH client is
-fatal rather than inconvenient.
+The transport is libssh2 rather than SwiftNIO SSH. SwiftNIO SSH implements
+modern primitives only (Ed25519 and ECDSA keys, AES-GCM, curve25519 key
+exchange), so a stock `id_rsa`, an RSA host key, or a server negotiating
+`aes256-ctr` fails to connect.
 
-One connection per host, kept 90 seconds past its last user, with shells,
-commands and watchers as channels on it. SSH has multiplexing built in and the
-handshake is the expensive part — the part a phone's radio punishes hardest.
+Connections are pooled one per host and held for 90 seconds past their last
+use, with shells, commands and watchers multiplexed as channels on them. The
+handshake is the expensive part of SSH and the part a mobile radio penalises
+most.
 
-## Layout
+## Repository layout
 
 ```
 Sources/
@@ -377,28 +364,17 @@ patches/libxev/
 scripts/      build-ghostty.sh, build-libssh2.sh, ghostty-pin.sh, selftest.sh
 ```
 
-## Design
-
-The tokens, springs and the flat-lens glass system come straight from
-Conterm's `UI/Theme.swift` and `UI/Effects/LiquidGlass.swift`, so the two apps
-read as one product. Two rules are worth repeating because breaking either is
-easy and looks bad:
-
-- **One sheet of glass, flat lenses on top.** Never nest a real glass effect
-  inside another. Every pill and chip is a plain translucent fill with a 0.5pt
-  top-lit rim in `.plusLighter`.
-- **Glass needs varied content behind it.** Over a flat dark screen,
-  "translucent" has nothing to be translucent to and reads as a tinted panel.
-
-Colour means something or it is not used: status (working / needs-you / ready
-/ danger), one user-chosen action accent, and the warm-red brand moment on
+Design tokens, springs and the glass system are ported from Conterm's
+`UI/Theme.swift` and `UI/Effects/LiquidGlass.swift` so the two applications
+share an appearance. Colour is reserved for meaning: status (working, needs
+attention, ready, danger), one user-chosen accent, and the brand red on
 launch. Everything else is monochrome.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Built on
+MIT. See [LICENSE](LICENSE). Built on
 [libghostty](https://github.com/ghostty-org/ghostty) and
 [libxev](https://github.com/mitchellh/libxev) (MIT),
 [libssh2](https://libssh2.org) (BSD-3-Clause) and
-[OpenSSL](https://openssl.org) (Apache-2.0); full notices in
+[OpenSSL](https://openssl.org) (Apache-2.0). Full notices are in
 [NOTICE.md](NOTICE.md). Not affiliated with the Ghostty project.

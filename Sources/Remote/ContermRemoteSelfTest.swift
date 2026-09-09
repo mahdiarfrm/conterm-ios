@@ -171,7 +171,7 @@ enum ContermRemoteSelfTest {
             landed = true
             // Decode it the way the Mac will: same field names, same enum.
             if let data = listing.output.data(using: .utf8),
-               let command = try? JSONDecoder().decode(ContermRemoteLink.Command.self,
+               let command = try? ContermRemoteLink.decoder.decode(ContermRemoteLink.Command.self,
                                                        from: data) {
                 decodedWell = command.action == .focusPane && command.paneID == "pane-1"
             }
@@ -192,7 +192,7 @@ enum ContermRemoteSelfTest {
             if let listing = try? await connection.exec(
                 "cat \(ContermRemoteLink.inboxDirectory)/*.json 2>/dev/null"),
                let data = listing.output.data(using: .utf8),
-               let command = try? JSONDecoder().decode(ContermRemoteLink.Command.self,
+               let command = try? ContermRemoteLink.decoder.decode(ContermRemoteLink.Command.self,
                                                        from: data) {
                 roundTripped = command.text == nasty && command.submit == true
                 break

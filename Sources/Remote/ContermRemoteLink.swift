@@ -209,11 +209,7 @@ final class ContermRemoteLink {
 
     func send(_ command: Command) async {
         guard let connection else { return }
-        let encoder = JSONEncoder()
-        // The Mac reads either shape, but ISO-8601 keeps an inbox file
-        // legible when one has to be read by hand.
-        encoder.dateEncodingStrategy = .iso8601
-        guard let payload = try? encoder.encode(command) else { return }
+        guard let payload = try? Self.encoder.encode(command) else { return }
         // base64 rather than a heredoc: the command carries arbitrary user
         // text, and the one thing that must never happen is a quote in a
         // reply turning into shell syntax on someone's Mac.
@@ -226,6 +222,48 @@ final class ContermRemoteLink {
         """
         _ = try? await connection.exec(script, timeout: .seconds(15))
     }
+
+    /// How a command goes on the wire.
+    ///
+    /// ISO-8601 rather than the `JSONEncoder` default, which writes seconds
+    /// since the reference date, because an inbox file is something someone
+    /// ends up reading by hand.
+    nonisolated(unsafe) static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }()
+
+    /// How the Mac reads one back, mirroring `RemoteControl.lenientDates`.
+    ///
+    /// It accepts either shape, so the two apps can ship in either order: a
+    /// date strategy mismatch fails the *whole* decode, which would drop
+    /// every command silently rather than just its timestamp. Anything on
+    /// this side that needs to check what the Mac will see has to decode the
+    /// way the Mac does, or it is testing its own assumptions.
+    nonisolated(unsafe) static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            if let text = try? container.decode(String.self) {
+                if let date = iso8601Frac.date(from: text) { return date }
+                if let date = iso8601Plain.date(from: text) { return date }
+                throw DecodingError.dataCorruptedError(
+                    in: container, debugDescription: "unparseable date \(text)")
+            }
+            return Date(timeIntervalSinceReferenceDate:
+                            try container.decode(Double.self))
+        }
+        return decoder
+    }()
+
+    nonisolated(unsafe) private static let iso8601Frac: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    nonisolated(unsafe) private static let iso8601Plain = ISO8601DateFormatter()
 
     /// What the phone can ask the Mac for. Mirrors `RemoteControl.Command`
     /// on the other side; a closed set on purpose.

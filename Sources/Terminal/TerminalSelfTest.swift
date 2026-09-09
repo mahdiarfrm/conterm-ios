@@ -3,12 +3,11 @@ import UIKit
 
 /// Drives a real terminal against a real shell and reads back what landed.
 ///
-/// The plan's Phase 0c gate was "`vim` and `htop` are usable over SSH", and
-/// until now nothing in this project had ever met an SSH daemon, so the gate
-/// had never been run at all. This runs the machine-checkable half of it: a
-/// pty of the right size, a flood that must not drop bytes, a full-screen
-/// application drawing and leaving cleanly, a resize the far end agrees with,
-/// and Ctrl-C actually interrupting.
+/// The bar is "`vim` and `htop` are usable over SSH". This runs the
+/// machine-checkable half of it: a pty of the right size, a flood that must
+/// not drop bytes, a full-screen application drawing and leaving cleanly, a
+/// resize the far end agrees with, Ctrl-C actually interrupting, and text
+/// making the round trip through the selection and the pasteboard.
 ///
 /// It reads the terminal's own viewport rather than the bytes on the wire, so
 /// a pass means the whole path worked — libssh2, the external termio backend,
@@ -246,6 +245,46 @@ enum TerminalSelfTest {
         check("search clears for a needle that is absent", cleared,
               "total \(session.searchTotal)")
         session.endSearch()
+
+        // 10. Selection and the clipboard. Selection is libghostty's, driven
+        //     through mouse events, and the coordinate space it wants is
+        //     pixels while UIKit hands out points — a mismatch that would
+        //     select the wrong cell by the scale factor and is invisible in
+        //     a screenshot. So the round trip is measured: put a known token
+        //     on screen, select everything, read the selection back.
+        let token = "SELECTME\(Int.random(in: 1000...9999))"
+        type("clear; printf '%s\\n' \(token)", in: session)
+        try? await Task.sleep(for: .seconds(2))
+
+        let surface = session.surfaceView
+        surface.controller?.selectAll()
+        let selected = await settle(seconds: 4) {
+            surface.controller?.hasSelection == true
+        }
+        check("select all makes a selection", selected)
+
+        let selection = surface.controller?.selectedText ?? ""
+        check("selection reads back", selection.contains(token),
+              "\(selection.count) chars, token \(selection.contains(token) ? "in" : "missing")")
+
+        // Copy goes to the pasteboard and takes the highlight with it.
+        let copied = surface.copySelection()
+        check("copy reaches the pasteboard",
+              copied && (UIPasteboard.general.string?.contains(token) ?? false))
+        check("copy clears the selection", surface.controller?.hasSelection == false)
+
+        // And back in. Paste is bracketed, so it must arrive as content
+        // rather than as keystrokes — which is the whole reason it does not
+        // go through the type path.
+        let pasted = "PASTED\(Int.random(in: 1000...9999))"
+        UIPasteboard.general.string = pasted
+        type("clear", in: session)
+        try? await Task.sleep(for: .seconds(1))
+        surface.pasteFromPasteboard()
+        let arrived = await waitFor(pasted, in: session, seconds: 5)
+        check("paste reaches the far end", arrived)
+        session.press(.keyboardReturnOrEnter)
+        try? await Task.sleep(for: .milliseconds(400))
 
         type("rm -f /tmp/conterm-selftest.txt", in: session)
         try? await Task.sleep(for: .milliseconds(300))

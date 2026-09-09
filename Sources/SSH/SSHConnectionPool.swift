@@ -58,7 +58,7 @@ final class SSHConnectionPool {
         }
 
         let address = host.address
-        let bastion = try bastion(for: host)
+        let bastion = try resolveJump(host)
         let task = Task<SSHConnection, any Error> {
             let connection = SSHConnection(address: address)
             try await connection.connect(credentials, trust: policy,
@@ -81,30 +81,54 @@ final class SSHConnectionPool {
         }
     }
 
-    /// Resolve a host's `ProxyJump` into something connectable.
+    /// How a host's `ProxyJump` becomes something connectable.
     ///
-    /// Deliberately loud when it cannot. Before this the field was parsed out
-    /// of an imported config and then dropped, so a host behind a bastion was
-    /// saved looking like any other, dialled directly, and timed out with
-    /// nothing on screen connecting the two — the worst way to learn that a
-    /// machine is not reachable from where you are.
-    private func bastion(for host: Host) throws -> SSHConnection.Bastion? {
-        guard let jump = host.proxyJump?.trimmingCharacters(in: .whitespaces),
-              !jump.isEmpty else { return nil }
-        guard let jumpHost = HostStore.shared.jumpHost(for: host) else {
-            throw SSHError.connectionFailed("""
-                \(host.alias) is reached through "\(jump)", which is not a saved host. \
-                Add it as a host of its own, with the key it needs, and try again.
-                """)
+    /// A property rather than a reach for `HostStore.shared` inside the pool.
+    /// The self-test has to stand a bastion up somehow, and the alternative
+    /// was writing a host and a private key into the stores a person actually
+    /// uses on their own phone and hoping the cleanup ran.
+    var resolveJump: JumpResolver = .savedHosts
+
+    struct JumpResolver: Sendable {
+        private let resolve: @MainActor @Sendable (Host) throws -> SSHConnection.Bastion?
+
+        init(_ resolve: @escaping @MainActor @Sendable (Host) throws -> SSHConnection.Bastion?) {
+            self.resolve = resolve
         }
-        guard jumpHost.id != host.id else {
-            throw SSHError.connectionFailed("\(host.alias) is set to jump through itself.")
+
+        @MainActor
+        func callAsFunction(_ host: Host) throws -> SSHConnection.Bastion? {
+            try resolve(host)
         }
-        guard let credentials = KeyStore.shared.credentials(for: jumpHost) else {
-            throw SSHError.connectionFailed(
-                "no saved credentials for \(jumpHost.alias), which \(host.alias) jumps through.")
+
+        /// The real one: a bastion is another host you have saved.
+        ///
+        /// It has to be, because reaching it needs its own credentials from
+        /// the Keychain and its own trusted key, and neither can be conjured
+        /// from the `user@host` string a config writes.
+        ///
+        /// Deliberately loud when it cannot resolve. The field used to be
+        /// parsed out of an imported config and then dropped, so a host
+        /// behind a bastion was saved looking like any other, dialled
+        /// directly, and timed out with nothing on screen connecting the two.
+        static let savedHosts = JumpResolver { host in
+            guard let jump = host.proxyJump?.trimmingCharacters(in: .whitespaces),
+                  !jump.isEmpty else { return nil }
+            guard let jumpHost = HostStore.shared.jumpHost(for: host) else {
+                throw SSHError.connectionFailed("""
+                    \(host.alias) is reached through "\(jump)", which is not a saved host. \
+                    Add it as a host of its own, with the key it needs, and try again.
+                    """)
+            }
+            guard jumpHost.id != host.id else {
+                throw SSHError.connectionFailed("\(host.alias) is set to jump through itself.")
+            }
+            guard let credentials = KeyStore.shared.credentials(for: jumpHost) else {
+                throw SSHError.connectionFailed(
+                    "no saved credentials for \(jumpHost.alias), which \(host.alias) jumps through.")
+            }
+            return SSHConnection.Bastion(address: jumpHost.address, credentials: credentials)
         }
-        return SSHConnection.Bastion(address: jumpHost.address, credentials: credentials)
     }
 
     private func reuse(_ host: Host) async throws -> SSHConnection? {

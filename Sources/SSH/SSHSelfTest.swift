@@ -283,31 +283,29 @@ enum SSHSelfTest {
         //     that half works looks like a slow network, and the failure it
         //     replaces was a host silently dialled direct.
         //
-        //     The bastion has to be a *saved* host with a real key, because
-        //     that is how the pool resolves its credentials. So the key goes
-        //     into the library and the host into the store, and the test
-        //     walks the same path the app does rather than a shortcut past
-        //     it.
-        var jumpSaved = false
+        //     The bastion is supplied straight to the pool rather than staged
+        //     in the stores. Writing a host and a private key into the real
+        //     ones to satisfy a test would put them on the phone of whoever
+        //     ran it, and a crash before the cleanup would leave them there.
         var behind = Host(alias: "behind-bastion", hostname: hostname, port: port,
                           username: user, auth: .privateKey,
                           proxyJump: "selftest")
         behind.id = UUID(uuidString: "00000000-0000-0000-0000-00000000beef")!
-        do {
-            let stored = try KeyLibrary.shared.add(text: privateKey, name: "selftest-key")
-            var bastion = host
-            bastion.keyID = stored.id
-            HostStore.shared.hosts
-                .filter { $0.id == bastion.id || $0.alias == bastion.alias }
-                .forEach { HostStore.shared.delete($0) }
-            HostStore.shared.add(bastion)
-            behind.keyID = stored.id
-            jumpSaved = true
-        } catch {
-            check("connect through a jump host", false, "couldn't stage the bastion: \(error)")
+        behind.keyID = host.keyID
+
+        let realResolver = SSHConnectionPool.shared.resolveJump
+        SSHConnectionPool.shared.resolveJump = .init { candidate in
+            guard let jump = candidate.proxyJump else { return nil }
+            guard jump == "selftest" else {
+                throw SSHError.connectionFailed("""
+                    \(candidate.alias) is reached through "\(jump)", which is not a saved host.
+                    """)
+            }
+            return SSHConnection.Bastion(address: host.address, credentials: credentials)
         }
+        defer { SSHConnectionPool.shared.resolveJump = realResolver }
+
         do {
-            guard jumpSaved else { throw SSHError.notConnected }
             let started = Date()
             let jumped = try await SSHConnectionPool.shared.connection(
                 for: behind, credentials: credentials, policy: .requireKnown)
@@ -346,16 +344,6 @@ enum SSHSelfTest {
             check("an unresolvable jump host is refused", false, "\(error)")
         }
         await SSHConnectionPool.shared.closeAll()
-
-        // Staging the bastion wrote a host and a private key into the real
-        // stores, which on a device are the ones the person uses. A test does
-        // not get to leave those behind.
-        HostStore.shared.hosts
-            .filter { $0.alias == "selftest" || $0.alias == "behind-bastion" }
-            .forEach { HostStore.shared.delete($0) }
-        KeyLibrary.shared.keys
-            .filter { $0.name == "selftest-key" }
-            .forEach { KeyLibrary.shared.delete($0) }
 
         // 8. The wall. Pretend we remembered something else and confirm the
         //    connection is refused before authentication — nothing sent.

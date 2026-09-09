@@ -273,6 +273,90 @@ enum SSHSelfTest {
         SSHConnectionPool.shared.release(host)
         await SSHConnectionPool.shared.closeAll()
 
+        // 7b. ProxyJump. The test host stands in for both ends: a bastion and
+        //     the machine behind it are the same sshd, which exercises every
+        //     part that matters — a second full SSH session, a direct-tcpip
+        //     channel, and a target session whose transport is that channel
+        //     rather than a socket.
+        //
+        //     Worth asserting rather than eyeballing: a tunnelled session
+        //     that half works looks like a slow network, and the failure it
+        //     replaces was a host silently dialled direct.
+        //
+        //     The bastion has to be a *saved* host with a real key, because
+        //     that is how the pool resolves its credentials. So the key goes
+        //     into the library and the host into the store, and the test
+        //     walks the same path the app does rather than a shortcut past
+        //     it.
+        var jumpSaved = false
+        var behind = Host(alias: "behind-bastion", hostname: hostname, port: port,
+                          username: user, auth: .privateKey,
+                          proxyJump: "selftest")
+        behind.id = UUID(uuidString: "00000000-0000-0000-0000-00000000beef")!
+        do {
+            let stored = try KeyLibrary.shared.add(text: privateKey, name: "selftest-key")
+            var bastion = host
+            bastion.keyID = stored.id
+            HostStore.shared.hosts
+                .filter { $0.id == bastion.id || $0.alias == bastion.alias }
+                .forEach { HostStore.shared.delete($0) }
+            HostStore.shared.add(bastion)
+            behind.keyID = stored.id
+            jumpSaved = true
+        } catch {
+            check("connect through a jump host", false, "couldn't stage the bastion: \(error)")
+        }
+        do {
+            guard jumpSaved else { throw SSHError.notConnected }
+            let started = Date()
+            let jumped = try await SSHConnectionPool.shared.connection(
+                for: behind, credentials: credentials, policy: .requireKnown)
+            let elapsed = Date().timeIntervalSince(started) * 1000
+            let result = try await jumped.exec("echo through-the-bastion")
+            check("connect through a jump host",
+                  result.output.contains("through-the-bastion"),
+                  String(format: "%.0fms", elapsed))
+
+            // The tunnel has to survive more than its first packet: a window
+            // that never reopens shows up only once enough bytes move.
+            let bulk = try await jumped.exec("seq 1 2000")
+            check("the tunnel carries bulk",
+                  bulk.output.contains("2000") && bulk.output.count > 8000,
+                  "\(bulk.output.count) bytes")
+            SSHConnectionPool.shared.release(behind)
+        } catch {
+            check("connect through a jump host", false, "\(error)")
+        }
+        await SSHConnectionPool.shared.closeAll()
+
+        // 7c. A jump that names nothing saved must say so, not dial direct.
+        //     That silent fallthrough is what this whole feature replaces.
+        var orphan = behind
+        orphan.id = UUID(uuidString: "00000000-0000-0000-0000-00000000dead")!
+        orphan.proxyJump = "no-such-bastion"
+        do {
+            _ = try await SSHConnectionPool.shared.connection(
+                for: orphan, credentials: credentials, policy: .requireKnown)
+            check("an unresolvable jump host is refused", false, "it connected anyway")
+            SSHConnectionPool.shared.release(orphan)
+        } catch let error as SSHError {
+            check("an unresolvable jump host is refused",
+                  "\(error)".contains("not a saved host"), "\(error)")
+        } catch {
+            check("an unresolvable jump host is refused", false, "\(error)")
+        }
+        await SSHConnectionPool.shared.closeAll()
+
+        // Staging the bastion wrote a host and a private key into the real
+        // stores, which on a device are the ones the person uses. A test does
+        // not get to leave those behind.
+        HostStore.shared.hosts
+            .filter { $0.alias == "selftest" || $0.alias == "behind-bastion" }
+            .forEach { HostStore.shared.delete($0) }
+        KeyLibrary.shared.keys
+            .filter { $0.name == "selftest-key" }
+            .forEach { KeyLibrary.shared.delete($0) }
+
         // 8. The wall. Pretend we remembered something else and confirm the
         //    connection is refused before authentication — nothing sent.
         KnownHostsStore.shared.remember(

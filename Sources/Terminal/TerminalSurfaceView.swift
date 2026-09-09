@@ -147,6 +147,19 @@ final class TerminalSurfaceView: UIView {
         pan.maximumNumberOfTouches = 2
         addGestureRecognizer(pan)
 
+        // Press and hold to select. A phone has no second button and no
+        // shift to hold, so the long press is the only gesture left that a
+        // single-finger drag (scrollback) has not already claimed.
+        let press = UILongPressGestureRecognizer(target: self,
+                                                 action: #selector(handleLongPress))
+        press.minimumPressDuration = 0.4
+        // The pan must lose to this one while a finger is held down, or a
+        // selection drag scrolls the viewport out from under itself.
+        pan.require(toFail: press)
+        addGestureRecognizer(press)
+
+        addInteraction(editMenu)
+
         // The real width isn't known until layout, but the surface's font is
         // fixed at creation — so size against the screen, which is the width
         // the view will have.
@@ -244,7 +257,78 @@ final class TerminalSurfaceView: UIView {
     override var canBecomeFirstResponder: Bool { true }
 
     @objc private func handleTap() {
+        // A tap on a highlighted terminal means "done with that", the way it
+        // does in every other iOS text view. Only then does it mean "type".
+        if controller?.hasSelection == true {
+            controller?.clearSelection()
+            return
+        }
         focusKeyboard()
+    }
+
+    // MARK: - Selection
+
+    private lazy var editMenu = UIEditMenuInteraction(delegate: self)
+
+    /// Where the selection gesture started, so the menu can be anchored to it
+    /// rather than to wherever the finger happened to stop.
+    private var selectionAnchor: CGPoint = .zero
+
+    @objc private func handleLongPress(_ press: UILongPressGestureRecognizer) {
+        MainActor.assumeIsolated {
+            let point = press.location(in: self)
+            switch press.state {
+            case .began:
+                // The keyboard would cover the thing being selected, and
+                // raising it on a gesture that is explicitly not typing is
+                // the wrong reflex.
+                dismissKeyboard()
+                selectionAnchor = point
+                controller?.beginSelection(at: point)
+                SoundEffects.shared.tap(.click, haptic: .light)
+            case .changed:
+                controller?.extendSelection(to: point)
+            case .ended:
+                controller?.endSelection()
+                presentEditMenu(at: selectionAnchor)
+            case .cancelled, .failed:
+                controller?.endSelection()
+            default:
+                break
+            }
+        }
+    }
+
+    /// Shown whether or not anything is selected. With a selection the menu
+    /// leads with Copy; without one it is still the only route to Paste,
+    /// which is the more valuable half on a device where typing is the
+    /// expensive part.
+    private func presentEditMenu(at point: CGPoint) {
+        editMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil,
+                                                              sourcePoint: point))
+    }
+
+    /// Paste whatever is on the pasteboard, from the accessory row's key or
+    /// the edit menu.
+    ///
+    /// This is the only route in: `ghosttyReadClipboard` refuses libghostty's
+    /// own request because UIPasteboard cannot be read off the main thread
+    /// and libghostty wants an answer synchronously.
+    func pasteFromPasteboard() {
+        guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
+        controller?.paste(text)
+        SoundEffects.shared.tap(.click, haptic: .light)
+    }
+
+    /// Copy the selection and drop the highlight, which is what finishing the
+    /// gesture means.
+    @discardableResult
+    func copySelection() -> Bool {
+        guard let text = controller?.selectedText, !text.isEmpty else { return false }
+        UIPasteboard.general.string = text
+        controller?.clearSelection()
+        SoundEffects.shared.tap(.click, haptic: .light)
+        return true
     }
 
     /// Where the last pan update left off, so each frame sends only its own
@@ -443,5 +527,78 @@ extension TerminalSurfaceView {
             if action == GHOSTTY_ACTION_PRESS { stickyModifiers = GHOSTTY_MODS_NONE }
             return true
         }
+    }
+}
+
+// MARK: - Edit menu
+
+extension TerminalSurfaceView: UIEditMenuInteractionDelegate {
+    /// `nonisolated` because the protocol is main-actor isolated and this
+    /// view is not; the body is main-actor work either way, which is what the
+    /// rest of this file's UIKit callbacks assert too.
+    nonisolated func editMenuInteraction(_ interaction: UIEditMenuInteraction,
+                                         menuFor configuration: UIEditMenuConfiguration,
+                                         suggestedActions: [UIMenuElement]) -> UIMenu? {
+        MainActor.assumeIsolated {
+            // Built here rather than taken from `suggestedActions`, which
+            // carries the system's text-view verbs (Look Up, Translate,
+            // Share) for a view that has no UITextInput to answer them.
+            var items: [UIMenuElement] = []
+            if controller?.hasSelection == true {
+                items.append(UIAction(title: "Copy",
+                                      image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
+                    MainActor.assumeIsolated { _ = self?.copySelection() }
+                })
+            }
+            if UIPasteboard.general.hasStrings {
+                items.append(UIAction(title: "Paste",
+                                      image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.pasteFromPasteboard() }
+                })
+            }
+            items.append(UIAction(title: "Select All",
+                                  image: UIImage(systemName: "selection.pin.in.out")) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.controller?.selectAll()
+                    self.presentEditMenu(at: self.selectionAnchor)
+                }
+            })
+            return UIMenu(children: items)
+        }
+    }
+}
+
+// MARK: - Responder chain
+
+extension TerminalSurfaceView {
+    /// Answers for the hardware keyboard's own shortcuts. A Command chord is
+    /// not in `TerminalKeyMap`, so `pressesBegan` declines it and UIKit walks
+    /// the responder chain to here.
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        MainActor.assumeIsolated {
+            switch action {
+            case #selector(copy(_:)):
+                return controller?.hasSelection == true
+            case #selector(paste(_:)):
+                return UIPasteboard.general.hasStrings
+            case #selector(selectAll(_:)):
+                return true
+            default:
+                return super.canPerformAction(action, withSender: sender)
+            }
+        }
+    }
+
+    override func copy(_ sender: Any?) {
+        MainActor.assumeIsolated { copySelection() }
+    }
+
+    override func paste(_ sender: Any?) {
+        MainActor.assumeIsolated { pasteFromPasteboard() }
+    }
+
+    override func selectAll(_ sender: Any?) {
+        MainActor.assumeIsolated { controller?.selectAll() }
     }
 }

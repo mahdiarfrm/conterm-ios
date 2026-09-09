@@ -242,6 +242,81 @@ final class SurfaceController {
         performBindingAction("search:")
     }
 
+    // MARK: - Selection
+
+    /// Whether the terminal is holding a selection right now.
+    var hasSelection: Bool {
+        guard let handle else { return false }
+        return ghostty_surface_has_selection(handle)
+    }
+
+    /// The selected text, or nil when nothing is selected.
+    var selectedText: String? {
+        guard let handle, ghostty_surface_has_selection(handle) else { return nil }
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(handle, &text) else { return nil }
+        defer { ghostty_surface_free_text(handle, &text) }
+        guard let ptr = text.text else { return nil }
+        return String(decoding: UnsafeRawBufferPointer(start: ptr, count: Int(text.text_len)),
+                      as: UTF8.self)
+    }
+
+    /// Begin a selection at a point in view coordinates.
+    ///
+    /// Selection is libghostty's, driven through the mouse events the desktop
+    /// uses, so word and line snapping, highlighting and scrollback-aware
+    /// extension all come from the engine. A touch is a left button: press
+    /// here, move to extend, release to finish.
+    func beginSelection(at point: CGPoint) {
+        guard let handle else { return }
+        movePointer(to: point)
+        _ = ghostty_surface_mouse_button(handle, GHOSTTY_MOUSE_PRESS,
+                                         GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+    }
+
+    /// Extend an in-progress selection to a point in view coordinates.
+    func extendSelection(to point: CGPoint) {
+        movePointer(to: point)
+    }
+
+    /// Finish the selection. What is highlighted stays highlighted.
+    func endSelection() {
+        guard let handle else { return }
+        _ = ghostty_surface_mouse_button(handle, GHOSTTY_MOUSE_RELEASE,
+                                         GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+    }
+
+    /// Drop the selection. A press and release without movement is how
+    /// libghostty clears one.
+    func clearSelection() {
+        guard let handle, ghostty_surface_has_selection(handle) else { return }
+        _ = ghostty_surface_mouse_button(handle, GHOSTTY_MOUSE_PRESS,
+                                         GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+        _ = ghostty_surface_mouse_button(handle, GHOSTTY_MOUSE_RELEASE,
+                                         GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+    }
+
+    func selectAll() {
+        performBindingAction("select_all")
+    }
+
+    /// Move libghostty's pointer to a point in view coordinates.
+    ///
+    /// Points in, pixels out, for the reason `scroll(byPoints:)` documents at
+    /// length: libghostty divides the position by `size.cell.width`, which is
+    /// in device pixels because that is the unit `ghostty_surface_set_size`
+    /// was given. Passing points selects the wrong cell by the scale factor,
+    /// which on a 3x phone is a selection that starts two thirds of the way
+    /// up the screen from where the finger is.
+    private func movePointer(to point: CGPoint) {
+        guard let handle else { return }
+        let scale = Double(view.contentScaleFactor)
+        ghostty_surface_mouse_pos(handle,
+                                  Double(point.x) * scale,
+                                  Double(point.y) * scale,
+                                  GHOSTTY_MODS_NONE)
+    }
+
     /// Scroll the terminal by a pixel delta.
     ///
     /// `precision` tells libghostty the offset is in pixels rather than

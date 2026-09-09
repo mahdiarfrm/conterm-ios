@@ -59,6 +59,11 @@ actor SSHConnection {
 
     private var session: OpaquePointer?
     private var socket: Int32 = -1
+    /// The bastion this connection rides on, when the host has a ProxyJump.
+    /// Owned outright: it is closed with the connection and shared with
+    /// nothing, which is what keeps a second libssh2 session off a second
+    /// thread. See `SSHJumpHop`.
+    private var jump: SSHJumpHop?
     private var channels: [SSHChannelID: Chan] = [:]
     private var nextID: SSHChannelID = 1
     private var pump: Task<Void, Never>?
@@ -96,8 +101,15 @@ actor SSHConnection {
 
     // MARK: - Connecting
 
+    /// Where to reach this host through, when it is not directly reachable.
+    struct Bastion: Sendable {
+        var address: HostAddress
+        var credentials: SSHCredentials
+    }
+
     func connect(_ credentials: SSHCredentials,
                  trust: HostKeyTrust.Policy,
+                 via bastion: Bastion? = nil,
                  onPhase: (@Sendable (SSHConnectPhase) -> Void)? = nil) async throws {
         guard Self.libraryReady else {
             throw SSHError.connectionFailed("libssh2 failed to initialise")
@@ -108,7 +120,25 @@ actor SSHConnection {
         // TCP, key exchange — and none of it may run on a cooperative thread,
         // so it goes to a dispatch queue and the actor stays free.
         onPhase?(.resolving)
-        let handshake = try await Self.handshake(address: address, onPhase: onPhase)
+        // The bastion is a connection of its own — its own key exchange, its
+        // own trust decision, its own authentication — and all of it has to
+        // succeed before the target has anywhere to be reached through.
+        var hop: SSHJumpHop?
+        if let bastion {
+            hop = try await openJump(to: bastion, trust: trust, onPhase: onPhase)
+            self.jump = hop
+        }
+
+        let handshake: Handshaken
+        do {
+            handshake = try await Self.handshake(address: address,
+                                                 through: hop,
+                                                 onPhase: onPhase)
+        } catch {
+            hop?.close()
+            self.jump = nil
+            throw error
+        }
         self.socket = handshake.socket
         self.session = handshake.session
 
@@ -155,6 +185,64 @@ actor SSHConnection {
         onPhase?(.ready)
     }
 
+    /// Bring up the bastion: key exchange, trust decision, authentication,
+    /// and a channel to the target.
+    ///
+    /// The trust decision sits between two blocking halves because it is the
+    /// one part that may have to ask a person something, and a fingerprint
+    /// only exists once the exchange has happened. A bastion is verified
+    /// against the trust store under its own address, so trusting it for one
+    /// host behind it trusts it for all of them, which is what it is.
+    private func openJump(to bastion: Bastion,
+                          trust: HostKeyTrust.Policy,
+                          onPhase: (@Sendable (SSHConnectPhase) -> Void)?) async throws
+        -> SSHJumpHop {
+        onPhase?(.connecting)
+        let pending = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<SSHJumpHop.Pending, any Error>) in
+            Self.blockingQueue.async {
+                do {
+                    continuation.resume(returning:
+                        try SSHJumpHop.handshake(bastion: bastion.address))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+
+        onPhase?(.verifying)
+        switch await HostKeyTrust.shared.verdict(fingerprint: pending.fingerprint,
+                                                 keyType: pending.keyType,
+                                                 for: bastion.address,
+                                                 policy: trust) {
+        case .trust:
+            break
+        case .unknown(let fingerprint, _):
+            pending.discard()
+            throw SSHError.hostKeyUnknown(fingerprint: fingerprint)
+        case .mismatch(let expected, let got):
+            pending.discard()
+            throw SSHError.hostKeyMismatch(expected: expected, got: got)
+        }
+
+        onPhase?(.authenticating)
+        let target = address
+        return try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<SSHJumpHop, any Error>) in
+            Self.blockingQueue.async {
+                do {
+                    continuation.resume(returning:
+                        try SSHJumpHop.finish(pending,
+                                              credentials: bastion.credentials,
+                                              bastion: bastion.address,
+                                              target: target))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     private struct Handshaken: @unchecked Sendable {
         let socket: Int32
         let session: OpaquePointer
@@ -164,19 +252,26 @@ actor SSHConnection {
 
     private static func handshake(
         address: HostAddress,
+        through hop: SSHJumpHop?,
         onPhase: (@Sendable (SSHConnectPhase) -> Void)?
     ) async throws -> Handshaken {
         try await withCheckedThrowingContinuation { continuation in
             blockingQueue.async {
                 do {
                     onPhase?(.connecting)
-                    let socket = try openSocket(host: address.hostname,
-                                                port: address.port,
-                                                timeout: 12)
+                    // With a hop the socket is the bastion's. The target
+                    // session never reads or writes it — the transport
+                    // callbacks do that — but libssh2 stores the descriptor
+                    // and the pump polls it, and it is where the bytes
+                    // physically arrive, so it is the right one to watch.
+                    let socket = try hop?.socket ?? openSocket(host: address.hostname,
+                                                               port: address.port,
+                                                               timeout: 12)
                     guard let session = libssh2_session_init_ex(nil, nil, nil, nil) else {
-                        Darwin.close(socket)
+                        if hop == nil { Darwin.close(socket) }
                         throw SSHError.connectionFailed("couldn't create an SSH session")
                     }
+                    hop?.attach(to: session)
                     libssh2_session_set_blocking(session, 1)
                     // A wedged key exchange used to hang until the kernel gave
                     // up, which is minutes. Twenty seconds is already generous
@@ -187,7 +282,7 @@ actor SSHConnection {
                     guard libssh2_session_handshake(session, socket) == 0 else {
                         let message = lastError(session)
                         libssh2_session_free(session)
-                        Darwin.close(socket)
+                        if hop == nil { Darwin.close(socket) }
                         throw SSHError.connectionFailed(message)
                     }
 
@@ -203,7 +298,7 @@ actor SSHConnection {
         }
     }
 
-    private static func hostKey(_ session: OpaquePointer) throws -> (String, String) {
+    static func hostKey(_ session: OpaquePointer) throws -> (String, String) {
         guard let hash = libssh2_hostkey_hash(session, LIBSSH2_HOSTKEY_HASH_SHA256) else {
             throw SSHError.connectionFailed("the host offered no key")
         }
@@ -230,56 +325,66 @@ actor SSHConnection {
         return (fingerprint, keyType)
     }
 
-    private static func authenticate(_ credentials: SSHCredentials,
-                                     session: OpaquePointer) async throws {
+    static func authenticate(_ credentials: SSHCredentials,
+                             session: OpaquePointer) async throws {
         try await withCheckedThrowingContinuation { continuation in
             blockingQueue.async {
-                let user = credentials.address.username
-                let rc: Int32
+                do {
+                    try authenticateNow(credentials, session: session)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
 
-                switch credentials.method {
-                case .password(let password):
-                    rc = user.withCString { u in
-                        password.withCString { p in
-                            libssh2_userauth_password_ex(session, u, UInt32(strlen(u)),
-                                                         p, UInt32(strlen(p)), nil)
-                        }
-                    }
+    /// The blocking half, callable from a queue that is already the right
+    /// one. A jump hop authenticates to its bastion from inside the target's
+    /// own handshake, which is already off the actor and already blocking.
+    static func authenticateNow(_ credentials: SSHCredentials,
+                                session: OpaquePointer) throws {
+        let user = credentials.address.username
+        let rc: Int32
 
-                case .privateKey(let privateKey, let publicKey, let passphrase):
-                    rc = user.withCString { u -> Int32 in
-                        privateKey.withCString { priv -> Int32 in
-                            let run: (UnsafePointer<CChar>?, Int) -> Int32 = { pub, pubLen in
-                                if let passphrase {
-                                    return passphrase.withCString { pass in
-                                        libssh2_userauth_publickey_frommemory(
-                                            session, u, strlen(u),
-                                            pub, pubLen,
-                                            priv, strlen(priv),
-                                            pass)
-                                    }
-                                }
-                                return libssh2_userauth_publickey_frommemory(
+        switch credentials.method {
+        case .password(let password):
+            rc = user.withCString { u in
+                password.withCString { p in
+                    libssh2_userauth_password_ex(session, u, UInt32(strlen(u)),
+                                                 p, UInt32(strlen(p)), nil)
+                }
+            }
+
+        case .privateKey(let privateKey, let publicKey, let passphrase):
+            rc = user.withCString { u -> Int32 in
+                privateKey.withCString { priv -> Int32 in
+                    let run: (UnsafePointer<CChar>?, Int) -> Int32 = { pub, pubLen in
+                        if let passphrase {
+                            return passphrase.withCString { pass in
+                                libssh2_userauth_publickey_frommemory(
                                     session, u, strlen(u),
                                     pub, pubLen,
                                     priv, strlen(priv),
-                                    nil)
+                                    pass)
                             }
-                            if let publicKey {
-                                return publicKey.withCString { pub in run(pub, strlen(pub)) }
-                            }
-                            return run(nil, 0)
                         }
+                        return libssh2_userauth_publickey_frommemory(
+                            session, u, strlen(u),
+                            pub, pubLen,
+                            priv, strlen(priv),
+                            nil)
                     }
-                }
-
-                if rc == 0 {
-                    continuation.resume()
-                } else {
-                    continuation.resume(throwing:
-                        SSHError.authenticationFailed(lastError(session)))
+                    if let publicKey {
+                        return publicKey.withCString { pub in run(pub, strlen(pub)) }
+                    }
+                    return run(nil, 0)
                 }
             }
+        }
+
+        guard rc == 0 else {
+            throw SSHError.authenticationFailed(lastError(session))
         }
     }
 
@@ -639,6 +744,10 @@ actor SSHConnection {
             self.session = nil
         }
         if socket >= 0 { Darwin.close(socket); socket = -1 }
+        // After the session, never before: freeing it writes a disconnect,
+        // and with a hop that write goes through the bastion channel.
+        jump?.close()
+        jump = nil
     }
 
     // MARK: - Plumbing
@@ -701,7 +810,7 @@ actor SSHConnection {
         return Self.lastError(session)
     }
 
-    private static func lastError(_ session: OpaquePointer) -> String {
+    static func lastError(_ session: OpaquePointer) -> String {
         var buffer: UnsafeMutablePointer<CChar>?
         var length: Int32 = 0
         let code = libssh2_session_last_error(session, &buffer, &length, 0)
@@ -716,7 +825,7 @@ actor SSHConnection {
     /// looks like a hung app. This connects non-blocking and gives each
     /// candidate address its own share of the budget, so a host with a dead
     /// AAAA record still reaches its A record quickly.
-    private static func openSocket(host: String, port: Int, timeout: TimeInterval) throws -> Int32 {
+    static func openSocket(host: String, port: Int, timeout: TimeInterval) throws -> Int32 {
         var hints = addrinfo(ai_flags: 0,
                              ai_family: AF_UNSPEC,
                              ai_socktype: SOCK_STREAM,

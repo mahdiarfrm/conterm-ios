@@ -19,6 +19,11 @@ struct Host: Identifiable, Codable, Hashable, Sendable {
     var keyID: UUID?
     /// Group membership, mirroring Conterm's colour-coded tab groups.
     var groupID: UUID?
+    /// The host to reach this one through, as `ProxyJump` names it: an
+    /// alias of another saved host, or `user@host:port` written out. A chain
+    /// is not supported, so only the first hop of a comma-separated
+    /// `ProxyJump` survives an import.
+    var proxyJump: String?
     /// Learned from a probe, used for the distro mark on the row.
     var distro: String?
     /// When this host was last connected to, for frecency ordering.
@@ -61,18 +66,27 @@ struct Host: Identifiable, Codable, Hashable, Sendable {
         // it, which is not this one. It is a hint that the host expects a key,
         // not a key we can use.
         self.auth = entry.identityFiles.isEmpty ? .password : .privateKey
+        // Only the first hop. A chain is rare and half-applying one would be
+        // worse than declining it, since the connection would silently go to
+        // the wrong machine.
+        self.proxyJump = entry.proxyJump?
+            .split(separator: ",").first
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .flatMap { $0.isEmpty ? nil : $0 }
     }
 
     init(alias: String = "",
          hostname: String = "",
          port: Int = 22,
          username: String = "",
-         auth: AuthKind = .password) {
+         auth: AuthKind = .password,
+         proxyJump: String? = nil) {
         self.alias = alias
         self.hostname = hostname
         self.port = port
         self.username = username
         self.auth = auth
+        self.proxyJump = proxyJump
     }
 }
 
@@ -119,6 +133,24 @@ final class HostStore {
         guard let i = hosts.firstIndex(where: { $0.id == host.id }) else { return }
         hosts[i].lastConnectedAt = Date()
         save()
+    }
+
+    /// The saved host a `proxyJump` names, if there is one.
+    ///
+    /// A bastion has to be a host you have saved, because reaching it needs
+    /// its own credentials and its own trusted key, and neither can be
+    /// invented from the `user@host` string a config writes. Matched on alias
+    /// first, since that is what `ProxyJump` almost always carries, then on
+    /// hostname for a config that spelled the address out.
+    func jumpHost(for host: Host) -> Host? {
+        guard let jump = host.proxyJump?.trimmingCharacters(in: .whitespaces),
+              !jump.isEmpty else { return nil }
+        // `user@host:port` — only the host part can match something saved.
+        let withoutUser = jump.contains("@") ? String(jump.split(separator: "@").last!) : jump
+        let name = String(withoutUser.split(separator: ":").first ?? "")
+        return hosts.first { $0.alias == jump }
+            ?? hosts.first { $0.alias == name }
+            ?? hosts.first { $0.hostname == name }
     }
 
     /// Merge imported entries, skipping aliases already present so a re-import

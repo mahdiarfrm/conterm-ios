@@ -58,9 +58,11 @@ final class SSHConnectionPool {
         }
 
         let address = host.address
+        let bastion = try bastion(for: host)
         let task = Task<SSHConnection, any Error> {
             let connection = SSHConnection(address: address)
-            try await connection.connect(credentials, trust: policy, onPhase: onPhase)
+            try await connection.connect(credentials, trust: policy,
+                                         via: bastion, onPhase: onPhase)
             return connection
         }
         opening[host.id] = task
@@ -77,6 +79,32 @@ final class SSHConnectionPool {
             opening[host.id] = nil
             throw error
         }
+    }
+
+    /// Resolve a host's `ProxyJump` into something connectable.
+    ///
+    /// Deliberately loud when it cannot. Before this the field was parsed out
+    /// of an imported config and then dropped, so a host behind a bastion was
+    /// saved looking like any other, dialled directly, and timed out with
+    /// nothing on screen connecting the two — the worst way to learn that a
+    /// machine is not reachable from where you are.
+    private func bastion(for host: Host) throws -> SSHConnection.Bastion? {
+        guard let jump = host.proxyJump?.trimmingCharacters(in: .whitespaces),
+              !jump.isEmpty else { return nil }
+        guard let jumpHost = HostStore.shared.jumpHost(for: host) else {
+            throw SSHError.connectionFailed("""
+                \(host.alias) is reached through "\(jump)", which is not a saved host. \
+                Add it as a host of its own, with the key it needs, and try again.
+                """)
+        }
+        guard jumpHost.id != host.id else {
+            throw SSHError.connectionFailed("\(host.alias) is set to jump through itself.")
+        }
+        guard let credentials = KeyStore.shared.credentials(for: jumpHost) else {
+            throw SSHError.connectionFailed(
+                "no saved credentials for \(jumpHost.alias), which \(host.alias) jumps through.")
+        }
+        return SSHConnection.Bastion(address: jumpHost.address, credentials: credentials)
     }
 
     private func reuse(_ host: Host) async throws -> SSHConnection? {

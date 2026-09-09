@@ -38,6 +38,21 @@ struct HostEditorView: View {
         return true
     }
 
+    /// Every other saved host, since any of them can be a bastion. The host
+    /// being edited is excluded: a machine cannot be reached through itself.
+    private var jumpCandidates: [Host] {
+        store.hosts
+            .filter { $0.id != host.id }
+            .sorted { $0.alias.localizedCaseInsensitiveCompare($1.alias) == .orderedAscending }
+    }
+
+    /// A `ProxyJump` carried in from a config that names nothing saved. The
+    /// picker cannot show it, so the value is kept and the footer explains
+    /// it rather than the edit silently discarding it.
+    private var unresolved: Bool {
+        host.proxyJump != nil && store.jumpHost(for: host) == nil
+    }
+
     private var selectedKeyNeedsPassphrase: Bool {
         guard let id = host.keyID else { return false }
         return library.key(withID: id)?.isEncrypted ?? false
@@ -64,6 +79,30 @@ struct HostEditorView: View {
                     Text("Connection")
                 } footer: {
                     Text("Name is what you'll see in the list. Leave it blank to use the hostname.")
+                }
+
+                Section {
+                    Picker("Through", selection: $host.proxyJump) {
+                        Text("Connect directly").tag(String?.none)
+                        ForEach(jumpCandidates) { candidate in
+                            Text(candidate.alias).tag(String?.some(candidate.alias))
+                        }
+                    }
+                } header: {
+                    Text("Jump host")
+                } footer: {
+                    // An imported ProxyJump can name a machine that was never
+                    // saved, and the picker cannot offer what does not exist.
+                    // Saying so here beats a connection that fails later with
+                    // the reason three screens away.
+                    if let jump = host.proxyJump, unresolved {
+                        Text("\"\(jump)\" isn't a saved host yet. Add it as a host of its own, "
+                             + "with the key it needs, or this one won't connect.")
+                            .foregroundStyle(Theme.Status.danger)
+                    } else {
+                        Text("For a machine you can only reach through a bastion. "
+                             + "The jump host is connected to first, with its own key.")
+                    }
                 }
 
                 Section("Group") {

@@ -51,7 +51,7 @@ struct AgentCenterView: View {
             }
             .padding(18)
         }
-        .background(Theme.appBackground.ignoresSafeArea())
+        .brandGround()
         .navigationTitle("Agents")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -96,7 +96,7 @@ struct AgentCenterView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 9) {
                 Text(headline)
-                    .font(.system(size: Theme.ui(21), weight: .bold, design: .rounded))
+                    .font(Theme.font(Theme.ui(21), .bold))
                     .foregroundStyle(Theme.textPrimary)
                 Spacer(minLength: 6)
                 if center?.refreshing == true {
@@ -104,11 +104,11 @@ struct AgentCenterView: View {
                 }
             }
             Text(host.displaySubtitle)
-                .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
+                .font(Theme.font(Theme.ui(11), .medium))
                 .foregroundStyle(Theme.textSecondary)
             if let stamp = ageStamp {
                 Text(stamp)
-                    .font(.system(size: Theme.ui(10), weight: .medium, design: .rounded))
+                    .font(Theme.font(Theme.ui(10), .medium))
                     .foregroundStyle(Theme.textSecondary.opacity(0.75))
                     .monospacedDigit()
             }
@@ -139,7 +139,7 @@ struct AgentCenterView: View {
         HStack(spacing: 10) {
             ProgressView().tint(Theme.sshAccent)
             Text("Asking \(host.hostname)…")
-                .font(.system(size: Theme.ui(13), weight: .medium, design: .rounded))
+                .font(Theme.font(Theme.ui(13), .medium))
                 .foregroundStyle(Theme.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -148,7 +148,7 @@ struct AgentCenterView: View {
 
     private func message(_ text: String, tint: Color) -> some View {
         Text(text)
-            .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
+            .font(Theme.font(Theme.ui(12), .medium))
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 24)
@@ -160,7 +160,7 @@ struct AgentCenterView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 14) {
                 Text(agent.task ?? agent.projectLabel)
-                    .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
+                    .font(Theme.font(Theme.ui(12), .medium))
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(3)
 
@@ -173,13 +173,13 @@ struct AgentCenterView: View {
 
                 if let replyError {
                     Text(replyError)
-                        .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
+                        .font(Theme.font(Theme.ui(12), .medium))
                         .foregroundStyle(Theme.Status.danger)
                 }
                 Spacer()
             }
             .padding(18)
-            .background(Theme.appBackground.ignoresSafeArea())
+            .brandGround()
             .navigationTitle("Reply")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -224,7 +224,7 @@ private struct AgentRow: View {
             HStack(spacing: 9) {
                 PhaseGem(phase: agent.phase)
                 Text(agent.projectLabel)
-                    .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
+                    .font(Theme.font(Theme.ui(15), .semibold))
                     .foregroundStyle(Theme.textPrimary)
                 if let branch = agent.branch, branch != "HEAD" {
                     Text(branch)
@@ -236,13 +236,13 @@ private struct AgentRow: View {
                 }
                 Spacer(minLength: 6)
                 Text(agent.phase.label)
-                    .font(.system(size: Theme.ui(10), weight: .semibold, design: .rounded))
+                    .font(Theme.font(Theme.ui(10), .semibold))
                     .foregroundStyle(tint)
             }
 
             if let task = agent.task {
                 Text(task)
-                    .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
+                    .font(Theme.font(Theme.ui(12), .medium))
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -262,14 +262,14 @@ private struct AgentRow: View {
             HStack(spacing: 10) {
                 if let at = agent.lastActivity {
                     Text(Self.relative(at))
-                        .font(.system(size: Theme.ui(10), weight: .medium, design: .rounded))
+                        .font(Theme.font(Theme.ui(10), .medium))
                         .foregroundStyle(Theme.textSecondary.opacity(0.75))
                 }
                 Spacer(minLength: 0)
                 if pane != nil {
                     Button(action: onReply) {
                         Text(agent.phase == .attention ? "Reply" : "Send a message")
-                            .font(.system(size: Theme.ui(11), weight: .semibold, design: .rounded))
+                            .font(Theme.font(Theme.ui(11), .semibold))
                             .foregroundStyle(Theme.accentOnDark)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
@@ -315,7 +315,7 @@ private struct AgentRow: View {
                 .foregroundStyle(Theme.textPrimary)
                 .monospacedDigit()
             Text(label)
-                .font(.system(size: Theme.ui(9), weight: .medium, design: .rounded))
+                .font(Theme.font(Theme.ui(9), .medium))
                 .foregroundStyle(Theme.textSecondary.opacity(0.8))
         }
     }
@@ -357,7 +357,6 @@ private struct PhaseGem: View {
             Circle()
                 .fill(color)
                 .frame(width: 8, height: 8)
-                .shadow(color: color.opacity(0.5 + 0.35 * pulse), radius: 5)
         }
         .frame(width: 8, height: 8)
     }

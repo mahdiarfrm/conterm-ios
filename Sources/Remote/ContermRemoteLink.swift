@@ -186,6 +186,11 @@ final class ContermRemoteLink {
         state = decoded
         phase = .loaded
         refreshing = false
+        // The home's card for this Mac reads this, so it can say what the
+        // Mac was doing without opening a connection to ask.
+        MacSummary.store(.init(panes: decoded.paneCount,
+                               waiting: decoded.agentsNeedingYou,
+                               at: decoded.publishedAt), for: host)
 
         // Everything that wants you, out to the widgets and the Island. The
         // Mac is where almost everyone's agents actually run, so this is the
@@ -208,19 +213,23 @@ final class ContermRemoteLink {
     }
 
     func send(_ command: Command) async {
-        guard let connection else { return }
-        guard let payload = try? Self.encoder.encode(command) else { return }
-        // base64 rather than a heredoc: the command carries arbitrary user
-        // text, and the one thing that must never happen is a quote in a
-        // reply turning into shell syntax on someone's Mac.
+        guard let connection, let script = Self.inboxScript(for: command) else { return }
+        _ = try? await connection.exec(script, timeout: .seconds(15))
+    }
+
+    /// The shell that drops a command in the Mac's inbox. base64 rather
+    /// than a heredoc: the command carries arbitrary user text, and the
+    /// one thing that must never happen is a quote in a reply turning
+    /// into shell syntax on someone's Mac.
+    nonisolated static func inboxScript(for command: Command) -> String? {
+        guard let payload = try? encoder.encode(command) else { return nil }
         let encoded = payload.base64EncodedString()
-        let file = "\(Self.inboxDirectory)/\(command.id).json"
-        let script = """
-        mkdir -p "\(Self.inboxDirectory)" && \
+        let file = "\(inboxDirectory)/\(command.id).json"
+        return """
+        mkdir -p "\(inboxDirectory)" && \
         printf %s '\(encoded)' | base64 -d > "\(file).part" && \
         mv "\(file).part" "\(file)"
         """
-        _ = try? await connection.exec(script, timeout: .seconds(15))
     }
 
     /// How a command goes on the wire.
@@ -274,6 +283,10 @@ final class ContermRemoteLink {
         var text: String?
         var submit: Bool?
         var windowIndex: Int?
+        /// A key by name, for `.key`.
+        var key: String?
+        /// For `.attach`: the pixels too.
+        var picture: Bool?
         /// Stamped at send. The Mac drops anything older than a minute: a
         /// command written while it was asleep should not be typed into a
         /// terminal whenever the lid next opens.
@@ -285,7 +298,111 @@ final class ContermRemoteLink {
             case sendText
             case interrupt
             case newTab
+            /// One pane, mirrored to a file while this is renewed.
+            case attach
+            case detach
+            /// Typed as keys, not pasted; `submit` adds a Return.
+            case type
+            /// A named key: return, escape, tab, backspace, the arrows,
+            /// ctrl-c, ctrl-d, ctrl-z, ctrl-l, ctrl-u, ctrl-a, ctrl-e, ctrl-r.
+            case key
         }
+    }
+
+    // MARK: - One pane
+
+    func attach(_ paneID: String, picture: Bool = false) async {
+        await send(.init(action: .attach, paneID: paneID, picture: picture))
+    }
+
+    func detach(_ paneID: String) async {
+        await send(.init(action: .detach, paneID: paneID))
+    }
+
+    func type(_ text: String, into paneID: String, submit: Bool) async {
+        await send(.init(action: .type, paneID: paneID, text: text, submit: submit))
+    }
+
+    func key(_ name: String, into paneID: String) async {
+        await send(.init(action: .key, paneID: paneID, key: name))
+    }
+
+    /// Stream the pane's mirrored screen. `onText` gets every new screen;
+    /// nil means the Mac has stopped mirroring it. Returns the channel,
+    /// for `closeScreen`.
+    func openScreen(of paneID: String,
+                    onText: @escaping @MainActor (String?) -> Void) async -> SSHChannelID? {
+        await openStream(of: paneID, picture: false) { data in
+            onText(data.map { String(decoding: $0, as: UTF8.self) })
+        }
+    }
+
+    /// Stream the pane's picture: every new JPEG as it lands.
+    func openPicture(of paneID: String,
+                     onImage: @escaping @MainActor (Data?) -> Void) async -> SSHChannelID? {
+        await openStream(of: paneID, picture: true) { data in
+            onImage(data.flatMap { Data(base64Encoded: $0, options: .ignoreUnknownCharacters) })
+        }
+    }
+
+    private func openStream(of paneID: String, picture: Bool,
+                            onRecord: @escaping @MainActor (Data?) -> Void) async -> SSHChannelID? {
+        guard let connection else { return nil }
+        let stream = RecordStream()
+        return try? await connection.execStream(
+            Self.paneWatcher(paneID, picture: picture),
+            onData: { data in
+                let records = stream.absorb(data)
+                Task { @MainActor in
+                    for record in records {
+                        if record.isEmpty { continue }
+                        if record.count <= 5, String(decoding: record, as: UTF8.self)
+                            .trimmingCharacters(in: .whitespacesAndNewlines) == "none" {
+                            onRecord(nil)
+                        } else {
+                            onRecord(record)
+                        }
+                    }
+                }
+            },
+            onClosed: { _ in
+                Task { @MainActor in onRecord(nil) }
+            })
+    }
+
+    func closeScreen(_ id: SSHChannelID) async {
+        guard let connection else { return }
+        await connection.closeChannel(id)
+    }
+
+    /// The state watcher again, for one pane's file. The picture goes
+    /// through base64, since a JPEG can contain the record separator.
+    private static func paneWatcher(_ paneID: String, picture: Bool) -> String {
+        """
+        f="$HOME/.config/conterm/remote-panes/\(paneID).\(picture ? "jpg" : "txt")"
+        last=""
+        beat=0
+        started=$(date +%s)
+        while :; do
+          if [ $(( $(date +%s) - started )) -gt 43200 ]; then exit 0; fi
+          if [ -f "$f" ]; then
+            s=$(stat -f '%m-%z' "$f" 2>/dev/null || stat -c '%Y-%s' "$f" 2>/dev/null)
+            if [ "$s" != "$last" ]; then
+              last="$s"
+              \(picture ? "base64 < \"$f\"" : "cat \"$f\"")
+              printf '\\036'
+              beat=0
+            fi
+          elif [ "$last" != "-absent-" ]; then
+            last="-absent-"
+            printf 'none\\036'
+            beat=0
+          fi
+          beat=$((beat + 1))
+          if [ "$beat" -ge 20 ]; then beat=0; printf '\\036'; fi
+          sleep 0.2 2>/dev/null || sleep 1
+        done
+        """
     }
 
     // MARK: - The far end
@@ -327,4 +444,24 @@ final class ContermRemoteLink {
       sleep 0.3 2>/dev/null || sleep 1
     done
     """
+}
+
+/// Bytes in, records out: everything up to each record separator.
+final class RecordStream: @unchecked Sendable {
+    private var pending = Data()
+    private let lock = NSLock()
+    private static let separator: UInt8 = 0x1E
+
+    func absorb(_ data: Data) -> [Data] {
+        lock.withLock {
+            pending.append(data)
+            var out: [Data] = []
+            while let index = pending.firstIndex(of: Self.separator) {
+                out.append(Data(pending[pending.startIndex..<index]))
+                pending = pending[pending.index(after: index)...]
+            }
+            if pending.count > 4 * 1024 * 1024 { pending.removeAll() }
+            return out
+        }
+    }
 }

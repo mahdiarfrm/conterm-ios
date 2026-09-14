@@ -20,6 +20,11 @@ final class SessionActivityCenter {
 
     private var activities: [ObjectIdentifier: Activity<SessionActivityAttributes>] = [:]
     private var lastPush: [ObjectIdentifier: Date] = [:]
+    /// Bytes at each push, so the island can be handed the rate between
+    /// pushes as a short history. Twelve points at twenty seconds apiece
+    /// is four minutes of what the session has been doing.
+    private var history: [ObjectIdentifier: [(bytes: Int, at: Date)]] = [:]
+    private let pulseLength = 12
     private let log = Logger(subsystem: "dev.conterm.ios", category: "activity")
 
     /// The floor between throughput-only updates. State changes ignore it.
@@ -31,7 +36,24 @@ final class SessionActivityCenter {
         ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
-    func start(for session: TerminalSession) {
+    /// End whatever an earlier process left on the island.
+    ///
+    /// A session cannot outlive the process that opened it, so an activity
+    /// found at launch is a pill announcing a shell that died with the app:
+    /// killed from the switcher, or by the system while suspended. Nothing
+    /// ends it otherwise for hours. Called once, before any session starts.
+    func reapOrphans() {
+        let owned = Set(activities.values.map(\.id))
+        for activity in Activity<SessionActivityAttributes>.activities
+        where !owned.contains(activity.id) {
+            let id = activity.id
+            Task { await Self.activity(id)?.end(nil, dismissalPolicy: .immediate) }
+        }
+    }
+
+    /// `since` is the session's own start; the harness backdates it to see
+    /// how the island's clocks hold their width past the hour.
+    func start(for session: TerminalSession, since: Date? = nil) {
         guard isAvailable else { return }
         let key = ObjectIdentifier(session)
         guard activities[key] == nil else { return }
@@ -40,7 +62,7 @@ final class SessionActivityCenter {
             hostAlias: session.host.alias,
             target: session.host.displaySubtitle,
             ordinal: session.ordinal,
-            startedAt: Date())
+            startedAt: since ?? session.startedAt)
         let state = contentState(for: session)
 
         do {
@@ -79,6 +101,7 @@ final class SessionActivityCenter {
         let key = ObjectIdentifier(session)
         guard let activity = activities.removeValue(forKey: key) else { return }
         lastPush[key] = nil
+        history[key] = nil
         let state = contentState(for: session)
         let lingers: Bool
         switch session.state {
@@ -108,9 +131,20 @@ final class SessionActivityCenter {
         case .failed(let why): phase = .failed; detail = why
         case .closed(let why): phase = .closed; detail = why
         }
+        let key = ObjectIdentifier(session)
+        var points = history[key] ?? []
+        points.append((session.bytesIn + session.bytesOut, Date()))
+        if points.count > pulseLength + 1 { points.removeFirst(points.count - pulseLength - 1) }
+        history[key] = points
+        let rates: [Double] = zip(points, points.dropFirst()).map { a, b in
+            max(Double(b.bytes - a.bytes), 0) / max(b.at.timeIntervalSince(a.at), 1)
+        }
+        let top = max(rates.max() ?? 0, 1)
         return .init(phase: phase,
                      title: session.title,
                      bytesIn: session.bytesIn,
+                     bytesOut: session.bytesOut,
+                     pulse: rates.map { $0 / top },
                      detail: detail)
     }
 }

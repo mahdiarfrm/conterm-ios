@@ -50,7 +50,7 @@ struct ContermState: Codable, Sendable {
         var id: String { "\(index)-\(title)" }
     }
 
-    struct Pane: Codable, Sendable, Identifiable {
+    struct Pane: Codable, Sendable, Identifiable, Hashable {
         var id: String
         var index: Int
         var title: String?

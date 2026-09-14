@@ -175,7 +175,7 @@ struct KeyAccessoryBar: View {
         } label: {
             Text(title)
                 .font(.system(size: Theme.ui(14), weight: .semibold, design: .monospaced))
-                .foregroundStyle(binding.wrappedValue ? Theme.appBackground : Theme.accentOnDark)
+                .foregroundStyle(binding.wrappedValue ? Theme.onAccent : Theme.accentOnDark)
                 .frame(minWidth: Theme.ui(42), minHeight: Theme.ui(38))
                 .background {
                     if binding.wrappedValue {
@@ -183,7 +183,6 @@ struct KeyAccessoryBar: View {
                         // that must be unmistakable at a glance.
                         Capsule(style: .continuous)
                             .fill(Theme.accentOnDark)
-                            .shadow(color: Theme.accentOnDark.opacity(0.45), radius: 8)
                     }
                 }
                 .floatingGlass()

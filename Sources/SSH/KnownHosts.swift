@@ -125,6 +125,18 @@ final class HostKeyTrust {
     /// The prompt currently on screen, if any. `RootView` presents it.
     private(set) var pending: Request?
 
+    /// Fingerprints a host said it would have, before it was ever
+    /// connected to: a Mac at pairing hands its own over. Keyed by address
+    /// and key type, so the first connection trusts the key it was told
+    /// about and asks about any other.
+    private var pretrusted: [String: [String: String]] = [:]
+
+    func pretrust(_ keys: [(type: String, fingerprint: String)], for address: HostAddress) {
+        var table = pretrusted[KnownHost.identifier(for: address)] ?? [:]
+        for key in keys { table[key.type] = key.fingerprint }
+        pretrusted[KnownHost.identifier(for: address)] = table
+    }
+
     struct Request: Identifiable {
         let id = UUID()
         let address: HostAddress
@@ -161,6 +173,11 @@ final class HostKeyTrust {
         case .mismatch:
             return verdict
         case .unknown:
+            if pretrusted[KnownHost.identifier(for: address)]?[keyType] == fingerprint {
+                KnownHostsStore.shared.remember(
+                    fingerprint: fingerprint, keyType: keyType, for: address)
+                return .trust
+            }
             guard policy == .ask else { return verdict }
             let accepted = await ask(fingerprint: fingerprint,
                                      keyType: keyType,

@@ -24,7 +24,7 @@ struct HostKeyPrompt: View {
                     .foregroundStyle(Theme.sshAccent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("First connection")
-                        .font(.system(size: Theme.ui(19), weight: .bold, design: .rounded))
+                        .font(Theme.font(Theme.ui(19), .bold))
                         .foregroundStyle(Theme.textPrimary)
                     Text(request.address.target)
                         .font(.system(size: Theme.ui(12), weight: .medium, design: .monospaced))
@@ -36,7 +36,7 @@ struct HostKeyPrompt: View {
 
             Text("This host identifies itself with the key below. Accepting it "
                + "means Conterm will refuse to connect if it ever changes.")
-                .font(.system(size: Theme.ui(13), weight: .medium, design: .rounded))
+                .font(Theme.font(Theme.ui(13), .medium))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, 16)
@@ -45,7 +45,7 @@ struct HostKeyPrompt: View {
                 .padding(.bottom, 16)
 
             Text("If you can, check it on the machine itself:")
-                .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
+                .font(Theme.font(Theme.ui(11), .medium))
                 .foregroundStyle(Theme.textSecondary)
             Text("ssh-keygen -lf /etc/ssh/ssh_host_\(shortType)_key.pub")
                 .font(.system(size: Theme.ui(11), weight: .medium, design: .monospaced))
@@ -60,7 +60,7 @@ struct HostKeyPrompt: View {
                     onDecide(false)
                 } label: {
                     Text("Cancel")
-                        .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
+                        .font(Theme.font(Theme.ui(14), .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
                 }
@@ -73,12 +73,12 @@ struct HostKeyPrompt: View {
                     onDecide(true)
                 } label: {
                     Text("Trust this host")
-                        .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
+                        .font(Theme.font(Theme.ui(14), .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Theme.appBackground)
+                .foregroundStyle(Theme.onAccent)
                 .background(Capsule().fill(Theme.accentOnDark))
             }
         }
@@ -99,7 +99,7 @@ struct HostKeyPrompt: View {
         }
         return VStack(alignment: .leading, spacing: 5) {
             Text("SHA256 \u{00b7} \(request.keyType)")
-                .font(.system(size: Theme.ui(10), weight: .bold))
+                .font(Theme.font(Theme.ui(10), .bold))
                 .tracking(1.0)
                 .foregroundStyle(Theme.textSecondary)
             Text(groups.joined(separator: " "))

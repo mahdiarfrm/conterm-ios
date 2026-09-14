@@ -8,6 +8,10 @@ import UniformTypeIdentifiers
 /// for anything narrower makes `id_rsa` unselectable in Files, greyed out
 /// with no explanation, which is exactly the wall you hit.
 struct KeyLibraryView: View {
+    /// On a tab rather than in a sheet: a cream card with its own title row,
+    /// and no Done button because there is nothing to dismiss.
+    var embedded = false
+
     @Environment(\.dismiss) private var dismiss
     @State private var library = KeyLibrary.shared
     @State private var importing = false
@@ -17,28 +21,70 @@ struct KeyLibraryView: View {
     @State private var newName = ""
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if library.keys.isEmpty { empty } else { list }
-            }
-            .background(Theme.appBackground.ignoresSafeArea())
-            .navigationTitle("Keys")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Menu {
-                        Button { importing = true } label: {
-                            Label("Import from Files", systemImage: "folder")
-                        }
-                        Button { pasting = true } label: {
-                            Label("Paste key text", systemImage: "doc.on.clipboard")
-                        }
-                    } label: { Image(systemName: "plus") }
+        Group {
+            if embedded {
+                VStack(spacing: 0) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        CardHeader(title: "Keys", count: library.keys.count)
+                        addMenu
+                            .padding(.trailing, 20)
+                    }
+                    core
                 }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                .creamCard()
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+                .contermReadableColumn(740)
+            } else {
+                NavigationStack {
+                    core
+                        .creamSheet()
+                        .navigationTitle("Keys")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Menu {
+                                    addActions
+                                } label: { Image(systemName: "plus") }
+                            }
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { dismiss() }
+                            }
+                        }
                 }
             }
+        }
+        .tint(Theme.Brand.ink)
+    }
+
+    @ViewBuilder
+    private var addActions: some View {
+        Button { importing = true } label: {
+            Label("Import from Files", systemImage: "folder")
+        }
+        Button { pasting = true } label: {
+            Label("Paste key text", systemImage: "doc.on.clipboard")
+        }
+    }
+
+    private var addMenu: some View {
+        Menu {
+            addActions
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: Theme.ui(13), weight: .bold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: Theme.ui(34), height: Theme.ui(34))
+                .background(Circle().fill(Theme.accentSoft))
+        }
+        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 8 }
+    }
+
+    private var core: some View {
+        Group {
+            if library.keys.isEmpty { empty } else { list }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
             .fileImporter(isPresented: $importing,
                           // .data and .item both matter: an extensionless
                           // id_rsa resolves to public.data, and some
@@ -60,8 +106,6 @@ struct KeyLibraryView: View {
             } message: {
                 Text(error ?? "")
             }
-        }
-        .tint(Theme.accentOnDark)
     }
 
     private var empty: some View {
@@ -71,21 +115,18 @@ struct KeyLibraryView: View {
                 .foregroundStyle(Theme.textSecondary)
                 .rollUp(delay: 0.05)
             Text("No keys yet")
-                .font(.system(size: 19, weight: .semibold, design: .rounded))
+                .font(Theme.font(19, .semibold))
                 .foregroundStyle(Theme.textPrimary)
                 .rollUp(delay: 0.11)
             Text("Import the private key — id_rsa or id_ed25519, the one **without** the .pub extension. Put it in iCloud Drive or AirDrop it to yourself first.")
-                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .font(Theme.font(13, .medium))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
                 .rollUp(delay: 0.17)
             Button("Import from Files") { importing = true }
-                .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
-                .foregroundStyle(Theme.appBackground)
-                .padding(.horizontal, 22)
-                .frame(height: Theme.hitTarget)
-                .background(Capsule().fill(Theme.accentOnDark))
+                .font(Theme.font(Theme.ui(15), .semibold))
+                .filledPill()
                 .buttonStyle(PressablePill())
                 .rollUp(delay: 0.23)
         }
@@ -98,14 +139,14 @@ struct KeyLibraryView: View {
                 HStack(spacing: 11) {
                     Image(systemName: key.isEncrypted ? "lock.fill" : "key.fill")
                         .font(.system(size: Theme.ui(13), weight: .medium))
-                        .foregroundStyle(Theme.sshAccent)
+                        .foregroundStyle(Theme.accent)
                         .frame(width: 22)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(key.name)
-                            .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
+                            .font(Theme.font(Theme.ui(14), .semibold))
                             .foregroundStyle(Theme.textPrimary)
                         Text(key.format.label + (key.isEncrypted ? " · passphrase" : ""))
-                            .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
+                            .font(Theme.font(Theme.ui(11), .medium))
                             .foregroundStyle(Theme.textSecondary)
                     }
                     Spacer()
@@ -184,7 +225,7 @@ private struct PasteKeySheet: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Theme.appBackground.ignoresSafeArea())
+            .creamSheet()
             .navigationTitle("Paste Key")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -200,6 +241,6 @@ private struct PasteKeySheet: View {
                 }
             }
         }
-        .tint(Theme.accentOnDark)
+        .tint(Theme.Brand.ink)
     }
 }

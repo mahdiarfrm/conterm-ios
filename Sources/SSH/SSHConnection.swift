@@ -9,6 +9,8 @@ struct SSHExecResult: Sendable {
     var output: String
     var errorOutput: String
     var exitStatus: Int32
+    /// Stdout as it came, for a file rather than a message.
+    var data: Data = Data()
 }
 
 /// Where a connection has got to. Shown live while connecting, because
@@ -440,6 +442,12 @@ actor SSHConnection {
     /// holding the lock, so a 3-second host probe was a 3-second dead
     /// keyboard.
     func exec(_ command: String, timeout: Duration = .seconds(25)) async throws -> SSHExecResult {
+        try await exec(command, input: nil, timeout: timeout)
+    }
+
+    /// Run a command and feed it `input` on stdin, closing stdin once it
+    /// has all gone. How a file gets to a host: `cat > path` and the bytes.
+    func exec(_ command: String, input: Data?, timeout: Duration = .seconds(25)) async throws -> SSHExecResult {
         let raw = try await openRawChannel()
         let rc = await retry {
             command.withCString { c in
@@ -456,6 +464,9 @@ actor SSHConnection {
         let chan = Chan(id: takeID(), raw: raw, kind: .command)
         chan.deadline = Date().addingTimeInterval(
             Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18)
+        // Whatever is queued goes first; the pump closes stdin only once
+        // the queue is empty.
+        if let input, !input.isEmpty { chan.outbound = input }
         chan.wantsEOF = true
         channels[chan.id] = chan
         wake()
@@ -702,7 +713,8 @@ actor SSHConnection {
                 completion.resume(returning: SSHExecResult(
                     output: String(decoding: chan.stdout, as: UTF8.self),
                     errorOutput: String(decoding: chan.stderr, as: UTF8.self),
-                    exitStatus: status))
+                    exitStatus: status,
+                    data: chan.stdout))
             }
         }
         chan.onClosed?(reason)

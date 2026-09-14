@@ -33,6 +33,18 @@ struct SSHCommandRunner: HostCommandRunner {
         self.policy = policy
     }
 
+    /// Run one command with something on its stdin, and get everything
+    /// back: bytes, text, exit status. For files.
+    func run(_ command: String, input: Data? = nil,
+             timeout: Duration? = nil) async throws -> SSHExecResult {
+        let timeout = timeout ?? self.timeout
+        return try await SSHConnectionPool.shared.withConnection(
+            for: host, credentials: credentials, policy: policy
+        ) { connection in
+            try await connection.exec(command, input: input, timeout: timeout)
+        }
+    }
+
     func runShell(_ script: String, on address: HostAddress) async throws -> String {
         let timeout = self.timeout
         return try await SSHConnectionPool.shared.withConnection(

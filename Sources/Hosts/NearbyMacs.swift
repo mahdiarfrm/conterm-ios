@@ -26,6 +26,8 @@ final class NearbyMacs {
         /// Whether the Mac says sshd is accepting connections. When it isn't,
         /// the row explains rather than offering a host that will refuse.
         var sshEnabled: Bool
+        /// Where the Mac takes a pairing, when its Conterm is new enough.
+        var pairPort: UInt16?
     }
 
     private(set) var found: [Found] = []
@@ -76,7 +78,7 @@ final class NearbyMacs {
             guard case .service(let name, _, _, _) = result.endpoint else { continue }
             var record: [String: String] = [:]
             if case .bonjour(let txt) = result.metadata {
-                for key in ["user", "host", "lhost", "ssh", "version"] {
+                for key in ["user", "host", "lhost", "ssh", "version", "pair"] {
                     if let value = txt.getEntry(for: key),
                        case .string(let string) = value {
                         record[key] = string
@@ -96,7 +98,8 @@ final class NearbyMacs {
                 hostname: resolvable + ".local",
                 username: record["user"] ?? "",
                 appVersion: record["version"],
-                sshEnabled: record["ssh"] != "off"))
+                sshEnabled: record["ssh"] != "off",
+                pairPort: record["pair"].flatMap { UInt16($0) }.flatMap { $0 == 0 ? nil : $0 }))
         }
         found = seen.sorted { $0.name < $1.name }
     }

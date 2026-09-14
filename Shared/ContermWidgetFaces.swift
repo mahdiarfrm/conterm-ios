@@ -14,11 +14,11 @@ import WidgetKit
 ///   circular     how many
 ///   rectangular  which one, and how long
 ///   small        the session you are in
-///   medium       that, plus the rest of the fleet
+///   medium       how many, and which
 ///   large        all of it, plus what wants you
 ///
-/// A new feature emits a `Signal` and appears wherever there is room, ranked.
-/// No layout changes.
+/// Every one sits on the ground the app is on, and is drawn with the app's
+/// panels: a translucent tile with a lit rim, the number first and large.
 
 // MARK: - Small
 
@@ -27,7 +27,7 @@ struct SmallFace: View {
 
     var body: some View {
         ZStack {
-            CT.Ground()
+            CT.Ground(palette: CT.palette(snapshot.ground))
             VStack(alignment: .leading, spacing: 0) {
                 header
                 content
@@ -38,12 +38,14 @@ struct SmallFace: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            CT.Logo(height: 11)
+            CT.Logo(height: 12)
             Spacer(minLength: 0)
             if let top = snapshot.ranked.first {
                 Image(systemName: CT.symbol(top.kind))
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(CT.tint(top.kind))
+            } else {
+                CT.Gem(color: snapshot.live.isEmpty ? CT.idle.opacity(0.5) : CT.ready, size: 7)
             }
         }
     }
@@ -54,48 +56,42 @@ struct SmallFace: View {
             VStack(alignment: .leading, spacing: 0) {
                 Spacer(minLength: 6)
                 Text(session.alias)
-                    .font(CT.ui(19, .bold))
+                    .font(CT.ui(17, .bold))
                     .foregroundStyle(CT.text)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.55)
-                // Where it actually is. Without it the face was a name, a
-                // clock, and a band of nothing between the two.
+                    .minimumScaleFactor(0.6)
                 Text(session.target)
                     .font(CT.ui(10.5, .medium))
-                    .foregroundStyle(CT.faint)
+                    .foregroundStyle(CT.dim)
                     .lineLimit(1)
                     .truncationMode(.head)
                     .padding(.top, 1)
-
                 Spacer(minLength: 4)
-
                 Text(session.startedAt, style: .timer)
-                    .font(CT.ui(26, .semibold))
+                    .font(CT.ui(30, .bold))
                     .foregroundStyle(CT.text)
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
-
-                CT.Chip(tint: CT.tint(session.phase)) {
+                CT.Chip(lit: true) {
                     HStack(spacing: 5) {
                         CT.Gem(color: CT.tint(session.phase), size: 5)
                         Text(caption(for: session))
-                            .font(CT.ui(10, .semibold))
+                            .font(CT.ui(10, .bold))
                             .foregroundStyle(CT.text)
                     }
                 }
                 .padding(.top, 6)
             }
         } else {
-            Spacer(minLength: 8)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Nothing running")
-                    .font(CT.ui(16, .bold))
-                    .foregroundStyle(CT.text)
-                Text(snapshot.hostCount == 1 ? "1 host" : "\(snapshot.hostCount) hosts")
-                    .font(CT.ui(12, .medium))
-                    .foregroundStyle(CT.faint)
-            }
+            Spacer(minLength: 6)
+            CT.Readout(value: "\(snapshot.hostCount)",
+                       label: snapshot.hostCount == 1 ? "host" : "hosts",
+                       symbol: "server.rack", size: 40)
+            Spacer(minLength: 4)
+            Text("Nothing running")
+                .font(CT.ui(11, .semibold))
+                .foregroundStyle(CT.dim)
         }
     }
 
@@ -114,53 +110,57 @@ struct MediumFace: View {
 
     var body: some View {
         ZStack {
-            CT.Ground()
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 8) {
-                    CT.Logo(height: 13)
-                    Spacer(minLength: 0)
-                    CT.Chip {
-                        Text("\(snapshot.live.count) live")
-                            .font(CT.ui(10.5, .semibold))
-                            .foregroundStyle(CT.dim)
-                            .monospacedDigit()
-                    }
+            CT.Ground(palette: CT.palette(snapshot.ground))
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 0) {
+                    CT.Logo(height: 12)
+                    Spacer(minLength: 6)
+                    CT.Readout(value: "\(snapshot.live.count)",
+                               label: "live", symbol: "bolt.horizontal.fill", size: 44,
+                               tint: CT.text)
+                    Spacer(minLength: 4)
+                    Text(snapshot.hostCount == 1 ? "1 host" : "\(snapshot.hostCount) hosts")
+                        .font(CT.ui(11, .semibold))
+                        .foregroundStyle(CT.dim)
                 }
-                .padding(.bottom, 12)
+                .frame(width: 104, alignment: .leading)
 
-                if snapshot.live.isEmpty {
-                    empty
-                } else {
-                    VStack(spacing: 8) {
+                VStack(spacing: 6) {
+                    if snapshot.live.isEmpty {
+                        Spacer(minLength: 0)
+                        Text("Nothing running")
+                            .font(CT.ui(14, .bold))
+                            .foregroundStyle(CT.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Spacer(minLength: 0)
+                    } else {
                         ForEach(Array(snapshot.live.prefix(3))) { session in
-                            CT.SessionRow(session: session, size: 14)
+                            CT.Tile(cornerRadius: 14, padding: 9) {
+                                CT.SessionRow(session: session, size: 13)
+                            }
                         }
                     }
-                }
-
-                Spacer(minLength: 6)
-
-                if let top = snapshot.ranked.first {
-                    CT.SignalRow(signal: top, size: 12.5)
-                } else if snapshot.live.count > 3 {
-                    Text("+\(snapshot.live.count - 3) more")
-                        .font(CT.ui(11, .medium))
-                        .foregroundStyle(CT.faint)
+                    if let top = snapshot.ranked.first {
+                        CT.Chip(tint: CT.tint(top.kind)) {
+                            HStack(spacing: 5) {
+                                Image(systemName: CT.symbol(top.kind))
+                                    .font(.system(size: 9, weight: .bold))
+                                Text(top.title)
+                                    .font(CT.ui(10, .bold))
+                                    .lineLimit(1)
+                            }
+                            .foregroundStyle(CT.text)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else if snapshot.live.count > 3 {
+                        Text("+\(snapshot.live.count - 3) more")
+                            .font(CT.ui(10.5, .semibold))
+                            .foregroundStyle(CT.dim)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
-            .padding(16)
-        }
-    }
-
-    private var empty: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Nothing running")
-                .font(CT.ui(15, .bold))
-                .foregroundStyle(CT.text)
-            Text(snapshot.hostCount == 1 ? "1 host saved"
-                                         : "\(snapshot.hostCount) hosts saved")
-                .font(CT.ui(12, .medium))
-                .foregroundStyle(CT.faint)
+            .padding(15)
         }
     }
 }
@@ -172,60 +172,91 @@ struct LargeFace: View {
 
     var body: some View {
         ZStack {
-            CT.Ground()
+            CT.Ground(palette: CT.palette(snapshot.ground))
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
-                    CT.Logo(height: 16)
+                    CT.Logo(height: 15)
                     Spacer(minLength: 0)
                     CT.Chip {
-                        Text("\(snapshot.live.count) live · \(snapshot.hostCount) hosts")
-                            .font(CT.ui(11, .semibold))
+                        Text(snapshot.updatedAt, style: .relative)
+                            .font(CT.ui(10, .semibold))
                             .foregroundStyle(CT.dim)
                             .monospacedDigit()
                     }
                 }
-                .padding(.bottom, 18)
+                .padding(.bottom, 14)
+
+                HStack(alignment: .top, spacing: 14) {
+                    CT.Readout(value: "\(snapshot.live.count)", label: "live",
+                               symbol: "bolt.horizontal.fill", size: 30)
+                    divider
+                    CT.Readout(value: "\(snapshot.hostCount)", label: "hosts",
+                               symbol: "server.rack", size: 30)
+                    divider
+                    CT.Readout(value: "\(snapshot.ranked.count)", label: "wants you",
+                               symbol: "sparkles", size: 30,
+                               tint: snapshot.ranked.isEmpty ? CT.text : CT.attention)
+                }
+                .padding(.bottom, 12)
 
                 if snapshot.live.isEmpty {
-                    Text("Nothing running")
-                        .font(CT.ui(16, .bold))
-                        .foregroundStyle(CT.text)
+                    CT.Tile(cornerRadius: 16, padding: 12) {
+                        Text("Nothing running")
+                            .font(CT.ui(14, .bold))
+                            .foregroundStyle(CT.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 } else {
-                    VStack(spacing: 12) {
-                        ForEach(Array(snapshot.live.prefix(5))) { session in
-                            CT.SessionRow(session: session, size: 15)
+                    // Three rows when signals need the room beneath, four
+                    // when they do not.
+                    VStack(spacing: 5) {
+                        ForEach(Array(snapshot.live.prefix(snapshot.ranked.isEmpty ? 4 : 3))) { session in
+                            CT.Tile(cornerRadius: 15, padding: 9) {
+                                HStack(spacing: 8) {
+                                    CT.SessionRow(session: session, size: 13.5)
+                                    Text("↓ \(CT.bytes(session.bytesIn))")
+                                        .font(CT.ui(10.5, .semibold))
+                                        .foregroundStyle(CT.faint)
+                                        .monospacedDigit()
+                                        .lineLimit(1)
+                                }
+                            }
                         }
                     }
                 }
 
                 if !snapshot.ranked.isEmpty {
-                    Spacer(minLength: 18)
                     Text("WANTS YOU")
-                        .font(.system(size: 9.5, weight: .bold))
+                        .font(CT.ui(9.5, .bold))
                         .tracking(1.1)
-                        .foregroundStyle(CT.faint)
-                        .padding(.bottom, 9)
-                    VStack(spacing: 10) {
-                        ForEach(Array(snapshot.ranked.prefix(3))) { signal in
-                            CT.SignalRow(signal: signal, size: 13.5)
+                        .foregroundStyle(CT.dim)
+                        .padding(.top, 12)
+                        .padding(.bottom, 6)
+                    VStack(spacing: 6) {
+                        ForEach(Array(snapshot.ranked.prefix(2))) { signal in
+                            CT.SignalRow(signal: signal, size: 13)
                         }
                     }
                 }
 
-                Spacer(minLength: 10)
+                Spacer(minLength: 8)
 
                 HStack(spacing: 0) {
-                    Text("\(CT.bytes(snapshot.live.reduce(0) { $0 + $1.bytesIn })) received")
-                        .font(CT.ui(11, .medium))
-                        .foregroundStyle(CT.faint)
+                    Text("\(CT.bytes(snapshot.live.reduce(0) { $0 + $1.bytesIn })) in")
+                    Text("  ·  ")
+                    Text("\(CT.bytes(snapshot.live.reduce(0) { $0 + $1.bytesOut })) out")
                     Spacer(minLength: 0)
-                    Text(snapshot.updatedAt, style: .relative)
-                        .font(CT.ui(11, .medium))
-                        .foregroundStyle(CT.faint)
                 }
+                .font(CT.ui(11, .medium))
+                .foregroundStyle(CT.faint)
+                .monospacedDigit()
             }
-            .padding(18)
+            .padding(17)
         }
+    }
+
+    private var divider: some View {
+        Rectangle().fill(Color.white.opacity(0.18)).frame(width: 1, height: 36).padding(.top, 4)
     }
 }
 

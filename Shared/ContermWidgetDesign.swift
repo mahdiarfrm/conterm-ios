@@ -1,52 +1,37 @@
 import SwiftUI
 import UIKit
 
-/// The design language for everything Conterm draws outside its own window.
+/// The design language for everything Conterm draws outside its own window:
+/// the home screen widgets, the lock screen, the Dynamic Island.
 ///
-/// Taken from the Mac app's own `Theme.swift` and `LiquidGlass.swift` rather
-/// than invented here, because two apps called Conterm should not look like
-/// two products. Ported by value: a widget extension cannot import the app's
-/// design layer, so the tokens are copied and the file says where from.
-///
-/// **What it looks like.** A near-black bed with one soft wash of the brand
-/// red in a corner — the same crimson/signature-red/coral family the launch
-/// overlay uses, at a fraction of the opacity, so it reads as warmth rather
-/// than as decoration. Chrome is flat glass: a black fill with a hairline
-/// top-lit rim in `.plusLighter`, which is the house signature and is on
-/// nearly every surface in the Mac app. Rounded SF for names, monospaced
-/// digits for anything that changes, amber for the one thing that wants you.
-///
-/// **What it replaced, twice.** First a rounded card with a grey stroke and a
-/// rainbow hairline — every developer-tool widget ever made, and against the
-/// project's own written rules. Then a literal terminal, `~ %` prompt and
-/// all, which was distinctive but was a costume: Conterm's chrome has never
-/// looked like a terminal, and a widget that does belongs to a different app.
+/// The app's own language, ported by value — a widget extension cannot
+/// import the app's design layer, so the tokens are copied and the file
+/// says where each comes from. One bold ground, the one chosen in Settings
+/// and carried in the snapshot; translucent white tiles and capsules with a
+/// lit rim on it; the number first and large with a glyph and a word
+/// beneath; Manrope for everything that is read. Colour means state and
+/// nothing else, in the light cuts the ground can carry.
 enum CT {
 
-    // MARK: - Beds  (Theme.paneTile, Theme.paneTitleBar)
+    // MARK: - Ground  (Theme.Ground, BrandGround)
 
-    static let bed = Color(red: 0.050, green: 0.055, blue: 0.075)
-    static let bedLift = Color(red: 0.090, green: 0.098, blue: 0.125)
+    static func palette(_ id: String?) -> GroundPalette { GroundPalette.named(id) }
 
-    // MARK: - Brand  (LaunchOverlay's red family)
+    // MARK: - Ink  (Theme.textPrimary, textSecondary, Brand)
 
-    static let crimson = Color(red: 0.80, green: 0.10, blue: 0.16)
-    static let signature = Color(red: 1.00, green: 0.22, blue: 0.24)
-    static let coral = Color(red: 1.00, green: 0.42, blue: 0.34)
+    static let text = Color.white.opacity(0.97)
+    static let dim = Color.white.opacity(0.70)
+    static let faint = Color.white.opacity(0.48)
+    static let cream = Color(red: 0.957, green: 0.949, blue: 0.925)
+    static let ink = Color(red: 0.12, green: 0.05, blue: 0.07)
 
-    // MARK: - Ink  (Theme.accentOnDark, textSecondary)
+    // MARK: - Status  (Theme.Status, the light cuts)
 
-    static let text = Color(red: 0.92, green: 0.96, blue: 1.00)
-    static let dim = Color(red: 0.62, green: 0.68, blue: 0.78)
-    static let faint = Color(red: 0.42, green: 0.48, blue: 0.58)
-
-    // MARK: - Status  (AgentCenterOverlay's AgentColor)
-
-    static let ready = Color(red: 0.30, green: 0.82, blue: 0.46)
-    static let working = Color(red: 0.22, green: 0.56, blue: 1.00)
-    static let attention = Color(red: 1.00, green: 0.62, blue: 0.12)
-    static let idle = Color(red: 0.66, green: 0.69, blue: 0.76)
-    static let danger = Color(red: 1.00, green: 0.36, blue: 0.34)
+    static let ready = Color(red: 0.50, green: 0.94, blue: 0.62)
+    static let working = Color(red: 0.60, green: 0.88, blue: 1.00)
+    static let attention = Color(red: 1.00, green: 0.75, blue: 0.40)
+    static let idle = Color(red: 0.95, green: 0.80, blue: 0.84)
+    static let danger = Color(red: 1.00, green: 0.62, blue: 0.62)
 
     static func tint(_ phase: ContermSnapshot.Phase) -> Color {
         switch phase {
@@ -75,53 +60,65 @@ enum CT {
         }
     }
 
-    // MARK: - Type
-    //
-    // Rounded for chrome, monospaced digits for anything that changes —
-    // the Mac app's rule, and the reason a column of times lines up.
+    // MARK: - Type  (TextFace)
+
+    /// Manrope where the bundle has it, the rounded system face otherwise.
+    /// Both targets bundle the file and list it in their Info.plist.
+    private static let hasFace: Bool = UIFont(name: "Manrope-Regular", size: 12) != nil
 
     static func ui(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
-        .system(size: size, weight: weight, design: .rounded)
+        guard hasFace else { return .system(size: size, weight: weight, design: .rounded) }
+        let name: String
+        switch weight {
+        case .ultraLight, .thin: name = "Manrope-ExtraLight"
+        case .light: name = "Manrope-Light"
+        case .medium: name = "Manrope-Medium"
+        case .semibold: name = "Manrope-SemiBold"
+        case .bold: name = "Manrope-Bold"
+        case .heavy, .black: name = "Manrope-ExtraBold"
+        default: name = "Manrope-Regular"
+        }
+        return .custom(name, fixedSize: size)
     }
 
     // MARK: - Surfaces
 
-    /// The bed, with one soft wash of brand red.
-    ///
-    /// A radial, off the top-right corner, at a few percent. It is the only
-    /// colour on the surface that does not mean something, and it is kept
-    /// below the threshold where it would read as a tint — the Mac app files
-    /// coloured ambient backdrops under dead ends, and this stays on the
-    /// right side of that by a wide margin.
+    /// The ground: the chosen hue, flat. A widget is small and sits among
+    /// others; a gradient on it reads as a picture rather than a surface.
     struct Ground: View {
+        var palette: GroundPalette = .crimson
+
         var body: some View {
-            GeometryReader { geo in
-                // The radius has to scale with the surface. Fixed at 260pt it
-                // was a soft corner glow on a large widget and a wash over the
-                // entire card on a small one, which read as a maroon tint
-                // rather than as warmth.
-                let reach = max(geo.size.width, geo.size.height)
-                ZStack {
-                    LinearGradient(colors: [bedLift, bed],
-                                   startPoint: .top, endPoint: .bottom)
-                    RadialGradient(
-                        colors: [signature.opacity(0.13), crimson.opacity(0.05), .clear],
-                        center: UnitPoint(x: 0.95, y: -0.05),
-                        startRadius: 0, endRadius: reach * 0.78)
-                    RadialGradient(
-                        colors: [coral.opacity(0.04), .clear],
-                        center: UnitPoint(x: 0.02, y: 1.05),
-                        startRadius: 0, endRadius: reach * 0.55)
-                }
-            }
+            palette.flat
         }
     }
 
-    /// The flat glass capsule: a black fill and a hairline top-lit rim in
-    /// `.plusLighter`. Straight out of `LiquidGlass.swift` — `chromeFill` is
-    /// black at 0.20, `chromeEdge` runs white 0.30 to white 0.06.
+    /// The flat lens: a translucent white fill and a hairline top-lit rim.
+    /// `glassTile`, by value.
+    struct Tile<Content: View>: View {
+        var cornerRadius: CGFloat = 18
+        var padding: CGFloat = 12
+        var lit: Bool = false
+        @ViewBuilder var content: Content
+
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            content
+                .padding(padding)
+                .background(shape.fill(Color.white.opacity(lit ? 0.24 : 0.14)))
+                .overlay(
+                    shape.strokeBorder(
+                        LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.10)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: 0.5)
+                    .blendMode(.plusLighter))
+        }
+    }
+
+    /// The same lens on a capsule. `glassPill`.
     struct Chip<Content: View>: View {
         var tint: Color?
+        var lit: Bool = false
         @ViewBuilder var content: Content
 
         var body: some View {
@@ -130,12 +127,12 @@ enum CT {
                 .padding(.vertical, 4)
                 .background {
                     Capsule(style: .continuous)
-                        .fill(tint?.opacity(0.16) ?? Color.black.opacity(0.20))
+                        .fill(tint?.opacity(0.22) ?? Color.white.opacity(lit ? 0.26 : 0.15))
                 }
                 .overlay {
                     Capsule(style: .continuous)
                         .strokeBorder(
-                            LinearGradient(colors: [.white.opacity(0.30), .white.opacity(0.06)],
+                            LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.10)],
                                            startPoint: .top, endPoint: .bottom),
                             lineWidth: 0.5)
                         .blendMode(.plusLighter)
@@ -143,7 +140,7 @@ enum CT {
         }
     }
 
-    /// The status mark: a lit dot. The Mac app's gem, unchanged.
+    /// The status mark: a lit dot.
     struct Gem: View {
         var color: Color
         var size: CGFloat = 7
@@ -152,11 +149,75 @@ enum CT {
             Circle()
                 .fill(color)
                 .frame(width: size, height: size)
-                .shadow(color: color.opacity(0.75), radius: size * 0.62)
         }
     }
 
-    /// One session: gem, name, and a right-aligned clock that ticks itself.
+    /// The number first and large, the meaning beneath it as a glyph and a
+    /// word. `Readout`, by value.
+    struct Readout: View {
+        var value: String
+        var label: String
+        var symbol: String?
+        var size: CGFloat = 28
+        var tint: Color = CT.text
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(CT.ui(size, .bold))
+                    .foregroundStyle(tint)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                HStack(spacing: 4) {
+                    if let symbol {
+                        Image(systemName: symbol)
+                            .font(.system(size: size * 0.34, weight: .semibold))
+                    }
+                    Text(label)
+                        .font(CT.ui(size * 0.4, .semibold))
+                }
+                .foregroundStyle(CT.dim)
+                .lineLimit(1)
+            }
+        }
+    }
+
+    /// A short history as small capsules, the newest lit. Static — a widget
+    /// cannot animate — but the shape the app's charts take.
+    struct Bars: View {
+        var values: [Double]
+        var slots: Int = 12
+        var height: CGFloat = 22
+        var tint: Color = CT.cream
+
+        var body: some View {
+            GeometryReader { geo in
+                let padding = max(slots - values.count, 0)
+                let all = Array(repeating: -1.0, count: padding) + values
+                // Thin capsules spread across the width, never fat ones: a
+                // bar wider than it is tall is a dot, not a bar.
+                let width = min(max((geo.size.width - 3 * CGFloat(slots - 1)) / CGFloat(slots), 2), 7)
+                let gap = max((geo.size.width - width * CGFloat(slots)) / CGFloat(max(slots - 1, 1)), 2)
+                HStack(alignment: .bottom, spacing: gap) {
+                    ForEach(Array(all.enumerated()), id: \.offset) { index, v in
+                        let empty = v < 0
+                        let last = index == all.count - 1
+                        Capsule(style: .continuous)
+                            .fill(empty ? Color.white.opacity(0.10)
+                                  : tint.opacity(last ? 1 : 0.55))
+                            .frame(width: width,
+                                   height: empty ? width : max(width, height * CGFloat(min(max(v, 0), 1))))
+                    }
+                }
+                .frame(width: geo.size.width, height: height, alignment: .bottomLeading)
+            }
+            .frame(height: height)
+        }
+    }
+
+    /// One session as a row: the gem, the name, the shell number when it
+    /// means something, and a clock that ticks itself.
     struct SessionRow: View {
         var session: ContermSnapshot.Session
         var size: CGFloat = 14
@@ -171,14 +232,14 @@ enum CT {
                 if session.ordinal > 1 {
                     Text("\(session.ordinal)")
                         .font(CT.ui(size * 0.68, .bold))
-                        .foregroundStyle(CT.faint)
-                        .padding(.horizontal, 4)
+                        .foregroundStyle(CT.dim)
+                        .padding(.horizontal, 5)
                         .padding(.vertical, 1)
-                        .background(Capsule().fill(.white.opacity(0.07)))
+                        .background(Capsule().fill(.white.opacity(0.14)))
                 }
                 Spacer(minLength: 6)
                 Text(session.startedAt, style: .timer)
-                    .font(CT.ui(size * 0.88, .medium))
+                    .font(CT.ui(size * 0.9, .semibold))
                     .foregroundStyle(CT.dim)
                     .monospacedDigit()
                     .lineLimit(1)
@@ -213,12 +274,8 @@ enum CT {
         }
     }
 
-    /// The real wordmark, as a template image, lit.
-    ///
-    /// The same `text-logo.png` the app's header uses — it is now in the
-    /// extension's bundle too, so the two never drift. Filled with a gradient
-    /// that runs from near-white to coral and given a soft red bloom, which
-    /// is as close to the Mac app's lit chrome as a static snapshot can get.
+    /// The wordmark, as a template image in the cream. The same
+    /// `text-logo.png` the app's bar carries.
     struct Logo: View {
         var height: CGFloat = 15
 
@@ -240,35 +297,12 @@ enum CT {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(height: height)
-                    .foregroundStyle(
-                        LinearGradient(colors: [CT.text, CT.text, CT.coral],
-                                       startPoint: .topLeading,
-                                       endPoint: .bottomTrailing))
-                    .shadow(color: CT.signature.opacity(0.45), radius: height * 0.42)
+                    .foregroundStyle(CT.cream)
             } else {
                 // Decorative; a missing asset must not leave a hole.
-                Text("CONTERM")
-                    .font(.system(size: height * 0.72, weight: .black, design: .rounded)
-                        .width(.expanded))
-                    .foregroundStyle(CT.text)
-            }
-        }
-    }
-
-    /// The wordmark, with the brand dot. Small, and only where there is room.
-    struct Mark: View {
-        var size: CGFloat = 13
-
-        var body: some View {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(LinearGradient(colors: [CT.signature, CT.crimson],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: size * 0.5, height: size * 0.5)
-                    .shadow(color: CT.signature.opacity(0.6), radius: size * 0.35)
                 Text("Conterm")
-                    .font(CT.ui(size, .bold))
-                    .foregroundStyle(CT.text)
+                    .font(CT.ui(height * 0.8, .bold))
+                    .foregroundStyle(CT.cream)
             }
         }
     }
@@ -277,7 +311,16 @@ enum CT {
 
     static func bytes(_ n: Int) -> String {
         if n >= 1_048_576 { return String(format: "%.1f MB", Double(n) / 1_048_576) }
-        if n >= 1024 { return String(format: "%.0f kB", Double(n) / 1024) }
+        if n >= 1024 { return String(format: "%.0f KB", Double(n) / 1024) }
         return "\(n) B"
+    }
+
+    /// The elapsed time as a short word: "2h 15m", "48s".
+    static func elapsed(since date: Date) -> String {
+        let s = Int(Date().timeIntervalSince(date))
+        if s < 60 { return "\(s)s" }
+        if s < 3600 { return "\(s / 60)m" }
+        if s < 86_400 { return "\(s / 3600)h \((s % 3600) / 60)m" }
+        return "\(s / 86_400)d \((s % 86_400) / 3600)h"
     }
 }

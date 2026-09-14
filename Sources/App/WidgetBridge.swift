@@ -62,7 +62,8 @@ enum WidgetBridge {
                 startedAt: session.startedAt,
                 phase: phase(of: session),
                 ordinal: session.ordinal,
-                bytesIn: session.bytesIn)
+                bytesIn: session.bytesIn,
+                bytesOut: session.bytesOut)
         }
 
         // A session can raise its own signal; everything else — agents on
@@ -84,7 +85,8 @@ enum WidgetBridge {
             updatedAt: Date(),
             sessions: sessions,
             signals: signals,
-            hostCount: HostStore.shared.hosts.count)
+            hostCount: HostStore.shared.hosts.count,
+            ground: Preferences.shared.ground)
     }
 
     private static func phase(of session: TerminalSession) -> ContermSnapshot.Phase {

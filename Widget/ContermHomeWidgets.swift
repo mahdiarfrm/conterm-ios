@@ -58,10 +58,10 @@ struct ContermStatusWidget: Widget {
     }
 }
 
-/// The ground, which differs by family: the terminal for the system sizes,
-/// nothing at all for the accessory ones — those render as a tinted stencil
-/// over the wallpaper, where an opaque near-black fill maps to nothing and
-/// the widget reads as missing.
+/// The ground, which differs by family: the chosen hue for the system
+/// sizes, nothing at all for the accessory ones — those render as a tinted
+/// stencil over the wallpaper, where an opaque fill maps to nothing and the
+/// widget reads as missing.
 struct FamilyGround: View {
     @Environment(\.widgetFamily) private var family
 
@@ -70,7 +70,7 @@ struct FamilyGround: View {
         case .accessoryCircular, .accessoryRectangular, .accessoryInline:
             Color.clear
         default:
-            CT.bed
+            CT.palette(ContermSnapshotStore.read().ground).flat
         }
     }
 }

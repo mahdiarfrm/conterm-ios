@@ -19,11 +19,12 @@ struct WidgetGallery: View {
 
     @State private var useLiveData = false
 
-    /// `CONTERM_WIDGETS=2` shows only the tall faces, which is the only way
-    /// to see them without a scroll gesture the tooling can't make.
-    private var compact: Bool {
-        ProcessInfo.processInfo.environment["CONTERM_WIDGETS"] == "2"
-    }
+    /// `CONTERM_WIDGETS=2` shows only the tall faces, and `=3` only the Live
+    /// Activity, which is the only way to see them without a scroll gesture
+    /// the tooling can't make.
+    private var mode: String { ProcessInfo.processInfo.environment["CONTERM_WIDGETS"] ?? "1" }
+    private var compact: Bool { mode != "1" }
+    private var activityOnly: Bool { mode == "3" }
 
     private var snapshot: ContermSnapshot {
         useLiveData ? ContermSnapshotStore.read() : .preview
@@ -44,10 +45,48 @@ struct WidgetGallery: View {
                         .frame(width: medium.width, height: medium.height)
                 }
                 }
+                if !activityOnly {
                 group("Large") {
                     LargeFace(snapshot: snapshot)
                         .frame(width: large.width, height: large.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                 }
+                }
+                group("Live Activity") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        SessionFace.Banner(attributes: Self.activityAttributes,
+                                           state: Self.activityState,
+                                           palette: CT.palette(snapshot.ground))
+                            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                            .frame(width: medium.width)
+                        // The island's expanded regions, laid out the way the
+                        // system does: leading and trailing on one row, the
+                        // bottom beneath, in its black.
+                        VStack(spacing: 0) {
+                            HStack(alignment: .top) {
+                                SessionFace.Leading(attributes: Self.activityAttributes,
+                                                    state: Self.activityState)
+                                Spacer(minLength: 0)
+                                SessionFace.Trailing(attributes: Self.activityAttributes,
+                                                     state: Self.activityState)
+                            }
+                            SessionFace.Bottom(attributes: Self.activityAttributes,
+                                               state: Self.activityState)
+                        }
+                        .padding(14)
+                        .frame(width: medium.width)
+                        .background(RoundedRectangle(cornerRadius: 44, style: .continuous).fill(.black))
+                        HStack(spacing: 0) {
+                            SessionFace.CompactMark(color: CT.palette(snapshot.ground).lights[0])
+                            Spacer()
+                            SessionFace.CompactClock(attributes: Self.activityAttributes)
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(width: 200, height: 37)
+                        .background(Capsule().fill(.black))
+                    }
+                }
+                if !activityOnly {
                 group("Lock screen") {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(spacing: 16) {
@@ -57,7 +96,7 @@ struct WidgetGallery: View {
                                 .frame(width: 160, height: 72, alignment: .leading)
                         }
                         InlineFace(snapshot: snapshot)
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .font(Theme.font(15, .semibold))
                     }
                     // The lock screen renders accessory widgets as a single
                     // tinted stencil, so previewing them in colour would be a
@@ -67,14 +106,24 @@ struct WidgetGallery: View {
                     .background(RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .fill(Color.white.opacity(0.08)))
                 }
+                }
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(Theme.appBackground.ignoresSafeArea())
+        .brandGround()
         .navigationTitle("Widgets")
         .navigationBarTitleDisplayMode(.inline)
     }
+
+    private static let activityAttributes = SessionActivityAttributes(
+        hostAlias: "sibche-prod", target: "root@sibche-mobin-prod", ordinal: 1,
+        startedAt: Date().addingTimeInterval(-4_357))
+    private static let activityState = SessionActivityAttributes.ContentState(
+        phase: .connected, title: "root@sibche-mobin-prod: ~/app",
+        bytesIn: 294_120, bytesOut: 12_400,
+        pulse: [0.1, 0.2, 0.05, 0.6, 1.0, 0.4, 0.2, 0.3, 0.8, 0.5, 0.15, 0.35],
+        detail: nil)
 
     private var source: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -88,7 +137,7 @@ struct WidgetGallery: View {
                  ? "Sharing with the widget extension."
                  : "No App Group — the extension can't read this yet, so widgets "
                  + "on the home screen show sample data.")
-                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .font(Theme.font(11, .medium))
                 .foregroundStyle(ContermSnapshotStore.isShared
                                  ? Theme.textSecondary : Theme.warning)
                 .fixedSize(horizontal: false, vertical: true)

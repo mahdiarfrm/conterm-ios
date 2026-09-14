@@ -34,6 +34,10 @@ struct SessionActivityAttributes: ActivityAttributes {
         /// Bytes received, which is the cheapest honest proof the connection
         /// is doing something rather than merely being open.
         var bytesIn: Int
+        var bytesOut: Int = 0
+        /// Traffic between the last few updates, oldest first, scaled so
+        /// the busiest is 1. The island draws it as small bars.
+        var pulse: [Double] = []
         /// Why it ended, when it did.
         var detail: String?
 

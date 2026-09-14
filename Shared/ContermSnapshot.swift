@@ -21,6 +21,9 @@ struct ContermSnapshot: Codable, Sendable, Equatable {
     /// Hosts saved but not currently connected, for the "nothing running"
     /// state to say something more useful than nothing.
     var hostCount: Int
+    /// The ground chosen in Settings, by `GroundPalette.id`, so a widget
+    /// sits on the same colour as the app. Absent from older snapshots.
+    var ground: String?
 
     static let empty = ContermSnapshot(
         updatedAt: .distantPast, sessions: [], signals: [], hostCount: 0)
@@ -34,6 +37,36 @@ struct ContermSnapshot: Codable, Sendable, Equatable {
         /// Which shell on this host, shown only when there is more than one.
         var ordinal: Int
         var bytesIn: Int
+        var bytesOut: Int = 0
+
+        init(id: String, alias: String, target: String, startedAt: Date, phase: Phase,
+             ordinal: Int, bytesIn: Int, bytesOut: Int = 0) {
+            self.id = id
+            self.alias = alias
+            self.target = target
+            self.startedAt = startedAt
+            self.phase = phase
+            self.ordinal = ordinal
+            self.bytesIn = bytesIn
+            self.bytesOut = bytesOut
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case id, alias, target, startedAt, phase, ordinal, bytesIn, bytesOut
+        }
+
+        /// Tolerant of a snapshot written before `bytesOut` existed.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            alias = try c.decode(String.self, forKey: .alias)
+            target = try c.decode(String.self, forKey: .target)
+            startedAt = try c.decode(Date.self, forKey: .startedAt)
+            phase = try c.decode(Phase.self, forKey: .phase)
+            ordinal = try c.decode(Int.self, forKey: .ordinal)
+            bytesIn = try c.decode(Int.self, forKey: .bytesIn)
+            bytesOut = try c.decodeIfPresent(Int.self, forKey: .bytesOut) ?? 0
+        }
     }
 
     enum Phase: String, Codable, Sendable {
@@ -159,7 +192,7 @@ extension ContermSnapshot {
         sessions: [
             .init(id: "1", alias: "sibche-prod", target: "root@sibche-mobin-prod",
                   startedAt: Date().addingTimeInterval(-8_142), phase: .connected,
-                  ordinal: 1, bytesIn: 2_431_002),
+                  ordinal: 1, bytesIn: 2_431_002, bytesOut: 41_200),
             .init(id: "2", alias: "sibche-prod", target: "root@sibche-mobin-prod",
                   startedAt: Date().addingTimeInterval(-612), phase: .connected,
                   ordinal: 2, bytesIn: 18_204),
@@ -168,7 +201,7 @@ extension ContermSnapshot {
                   ordinal: 1, bytesIn: 340),
             .init(id: "4", alias: "orbit", target: "mahdiar@orbit.local",
                   startedAt: Date().addingTimeInterval(-51_233), phase: .connected,
-                  ordinal: 1, bytesIn: 88_120),
+                  ordinal: 1, bytesIn: 88_120, bytesOut: 9_310),
         ],
         signals: [
             .init(id: "s1", kind: .agentWaiting, title: "Claude needs you",
@@ -176,5 +209,6 @@ extension ContermSnapshot {
             .init(id: "s2", kind: .hostDown, title: "db-02 not answering",
                   detail: "3m", at: Date().addingTimeInterval(-180)),
         ],
-        hostCount: 9)
+        hostCount: 9,
+        ground: "crimson")
 }

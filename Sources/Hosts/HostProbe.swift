@@ -84,6 +84,13 @@ struct HostInfo: Sendable, Equatable {
     var lastLogins: [String] = []
     /// Debian update-notifier line, e.g. "42 updates can be applied…".
     var updatesAvailable: String?
+    /// The host's zone, `Area/City`, when it says.
+    var timeZoneID: String?
+    /// The host's offset from UTC, in minutes.
+    var utcOffsetMinutes: Int?
+
+    /// What the host runs, from its own description.
+    var distro: Distro? { Distro.detect(os) ?? Distro.detect(kernel) }
 
     static func == (a: HostInfo, b: HostInfo) -> Bool {
         a.hostname == b.hostname && a.uptime == b.uptime
@@ -150,15 +157,55 @@ final class HostProbeModel {
     private let runner: any HostCommandRunner
     private var generation = 0
 
+    /// The live sampler for the same host, over the same connection. Started
+    /// and stopped by the screen that draws it.
+    let pulse: HostPulse
+
     /// Last good snapshot per host, kept for the app's lifetime — reopening
     /// a host shows it instantly (with its age in the header) while a fresh
     /// probe revalidates behind it. On a phone this is the difference
     /// between a screen that appears and a screen that spins.
     private static var snapshotCache: [HostAddress: (info: HostInfo, at: Date)] = [:]
 
+    /// One model per host, kept for the app's lifetime, so the sampler and
+    /// its history survive leaving the screen and coming back.
+    private static var models: [UUID: HostProbeModel] = [:]
+
+    /// The last good snapshot for a host, if it has ever been probed.
+    static func cachedInfo(for host: Host) -> (info: HostInfo, at: Date)? {
+        snapshotCache[host.address]
+    }
+
+    /// Every host with a model this launch, with its model: the ones whose
+    /// heartbeat can be drawn.
+    static var active: [(hostID: UUID, model: HostProbeModel)] {
+        models.map { (hostID: $0.key, model: $0.value) }
+    }
+
+    /// Keep a model someone else made — the harness's — as the host's.
+    static func adopt(_ model: HostProbeModel, for hostID: UUID) {
+        models[hostID] = model
+    }
+
+    /// The model for a host, made on first use. A model older than half a
+    /// minute refreshes on the way out.
+    static func shared(for host: Host, runner: any HostCommandRunner) -> HostProbeModel {
+        if let existing = models[host.id] {
+            if let at = existing.fetchedAt, Date().timeIntervalSince(at) > 30,
+               !existing.refreshing {
+                existing.refresh()
+            }
+            return existing
+        }
+        let made = HostProbeModel(address: host.address, runner: runner)
+        models[host.id] = made
+        return made
+    }
+
     init(address: HostAddress, runner: any HostCommandRunner) {
         self.address = address
         self.runner = runner
+        self.pulse = HostPulse(address: address, runner: runner)
         if let cached = Self.snapshotCache[address] {
             phase = .loaded(cached.info)
             fetchedAt = cached.at
@@ -260,6 +307,8 @@ final class HostProbeModel {
     put kernlog; { dmesg --level=err,warn 2>/dev/null || journalctl -k -p warning -n 8 --no-pager --output=short 2>/dev/null; } | grep -v '^--' | tail -4; true
     put lastlog; last -n 4 -w 2>/dev/null | grep -Ev '^wtmp|^$' | head -4; true
     put updates; grep -m1 'can be applied' /var/lib/update-notifier/updates-available 2>/dev/null; true
+    put tz; readlink /etc/localtime 2>/dev/null || cat /etc/timezone 2>/dev/null; true
+    put utcoff; date +%z 2>/dev/null; true
     put end
     """#
 
@@ -285,7 +334,7 @@ final class HostProbeModel {
         info.hostname = first("hostname") ?? "unknown"
         info.fqdn = first("fqdn")
         if info.fqdn == info.hostname { info.fqdn = nil }
-        info.os = first("os")
+        info.os = first("os").map(prettyOS)
         info.kernel = first("kernel")
         info.arch = first("arch")
         info.uptime = first("uptime").map(prettyUptime)
@@ -368,6 +417,16 @@ final class HostProbeModel {
         }
         info.lastLogins = sections["lastlog"] ?? []
         info.updatesAvailable = first("updates")
+        if let tz = first("tz") {
+            // `/usr/share/zoneinfo/Europe/Berlin`, or the bare name.
+            let name = tz.range(of: "zoneinfo/").map { String(tz[$0.upperBound...]) } ?? tz
+            if name.contains("/"), !name.hasPrefix("/") { info.timeZoneID = name }
+        }
+        if let off = first("utcoff"), off.count == 5,
+           let sign = off.first, let hours = Int(off.dropFirst().prefix(2)),
+           let minutes = Int(off.suffix(2)) {
+            info.utcOffsetMinutes = (sign == "-" ? -1 : 1) * (hours * 60 + minutes)
+        }
         return info
     }
 
@@ -379,6 +438,16 @@ final class HostProbeModel {
     }
 
     /// "14:03:22 up 41 days,  2:11,  3 users, …" → "41 days, 2:11".
+    /// `sw_vers` answers in two labelled lines; `/etc/os-release` answers in
+    /// one clean name. Both end up as the one clean name.
+    nonisolated private static func prettyOS(_ raw: String) -> String {
+        var s = raw
+        for label in ["ProductName:", "ProductVersion:", "BuildVersion:"] {
+            s = s.replacingOccurrences(of: label, with: " ")
+        }
+        return s.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
     nonisolated private static func prettyUptime(_ s: String) -> String {
         guard let upRange = s.range(of: "up ") else { return s }
         let parts = s[upRange.upperBound...]

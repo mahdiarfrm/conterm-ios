@@ -132,12 +132,8 @@ struct HostEditorView: View {
                 }
 
                 Section("Authentication") {
-                    Picker("Method", selection: $host.auth) {
-                        ForEach(Host.AuthKind.allCases, id: \.self) { kind in
-                            Text(kind.label).tag(kind)
-                        }
-                    }
-                    .pickerStyle(.segmented)
+                    SegmentedPill(selection: $host.auth, options: Host.AuthKind.allCases) { $0.label }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
 
                     switch host.auth {
                     case .password:
@@ -151,7 +147,7 @@ struct HostEditorView: View {
                                 Label("Import a key", systemImage: "key.fill")
                             }
                             Text("Import id_rsa or id_ed25519 once and use it on any host.")
-                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .font(Theme.font(11, .medium))
                                 .foregroundStyle(Theme.textSecondary)
                         } else {
                             Picker("Key", selection: $host.keyID) {
@@ -175,7 +171,7 @@ struct HostEditorView: View {
                 if let error {
                     Section {
                         Text(error)
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .font(Theme.font(12, .medium))
                             .foregroundStyle(Theme.Status.danger)
                     }
                 }
@@ -191,7 +187,7 @@ struct HostEditorView: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Theme.appBackground.ignoresSafeArea())
+            .creamSheet()
             .navigationTitle(existing == nil ? "New Host" : "Edit Host")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -205,7 +201,7 @@ struct HostEditorView: View {
             .onAppear(perform: loadExistingSecret)
             .sheet(isPresented: $managingKeys) { KeyLibraryView() }
         }
-        .tint(Theme.accentOnDark)
+        .tint(Theme.Brand.ink)
     }
 
     private func loadExistingSecret() {
@@ -262,7 +258,7 @@ extension HostEditorView {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                     Text("\(known.keyType) \u{00b7} trusted \(known.firstSeen.formatted(.relative(presentation: .named)))")
-                        .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                        .font(Theme.font(10.5, .medium))
                         .foregroundStyle(Theme.textSecondary)
                 }
                 .padding(.vertical, 2)

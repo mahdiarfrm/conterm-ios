@@ -1,0 +1,8 @@
+{
+  "images" : [
+    { "filename" : "distro-archlinux@2x.png", "idiom" : "universal", "scale" : "2x" },
+    { "filename" : "distro-archlinux@3x.png", "idiom" : "universal", "scale" : "3x" }
+  ],
+  "info" : { "author" : "xcode", "version" : 1 },
+  "properties" : { "template-rendering-intent" : "template" }
+}

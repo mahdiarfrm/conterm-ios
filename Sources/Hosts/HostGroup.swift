@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// A folder of hosts, browser-tab style.
 ///
@@ -46,17 +47,27 @@ struct HostGroup: Codable, Identifiable, Hashable, Sendable {
     ]
 
     /// Tuned for dark backgrounds, exactly as on the Mac.
+    /// Two cuts of each hue: deep for the cream sheet, pastel for the
+    /// crimson ground, chosen by the surface's appearance.
     static func color(forKey key: String) -> Color {
         switch key {
-        case "blue":   return Color(red: 0.42, green: 0.66, blue: 1.00)
-        case "purple": return Color(red: 0.72, green: 0.56, blue: 1.00)
-        case "pink":   return Color(red: 0.96, green: 0.56, blue: 0.78)
-        case "red":    return Color(red: 0.97, green: 0.45, blue: 0.45)
-        case "orange": return Color(red: 1.00, green: 0.62, blue: 0.32)
-        case "yellow": return Color(red: 1.00, green: 0.86, blue: 0.34)
-        case "green":  return Color(red: 0.48, green: 0.86, blue: 0.55)
-        case "teal":   return Color(red: 0.42, green: 0.86, blue: 0.86)
-        default:       return Color.gray
+        case "blue":   return Theme.dynamic(light: UIColor(red: 0.08, green: 0.40, blue: 0.85, alpha: 1),
+                                            dark: UIColor(red: 0.60, green: 0.78, blue: 1.00, alpha: 1))
+        case "purple": return Theme.dynamic(light: UIColor(red: 0.45, green: 0.25, blue: 0.85, alpha: 1),
+                                            dark: UIColor(red: 0.80, green: 0.68, blue: 1.00, alpha: 1))
+        case "pink":   return Theme.dynamic(light: UIColor(red: 0.80, green: 0.20, blue: 0.55, alpha: 1),
+                                            dark: UIColor(red: 1.00, green: 0.70, blue: 0.88, alpha: 1))
+        case "red":    return Theme.dynamic(light: UIColor(red: 0.78, green: 0.10, blue: 0.14, alpha: 1),
+                                            dark: UIColor(red: 1.00, green: 0.66, blue: 0.62, alpha: 1))
+        case "orange": return Theme.dynamic(light: UIColor(red: 0.85, green: 0.42, blue: 0.05, alpha: 1),
+                                            dark: UIColor(red: 1.00, green: 0.76, blue: 0.45, alpha: 1))
+        case "yellow": return Theme.dynamic(light: UIColor(red: 0.70, green: 0.52, blue: 0.00, alpha: 1),
+                                            dark: UIColor(red: 1.00, green: 0.90, blue: 0.50, alpha: 1))
+        case "green":  return Theme.dynamic(light: UIColor(red: 0.08, green: 0.55, blue: 0.28, alpha: 1),
+                                            dark: UIColor(red: 0.62, green: 0.94, blue: 0.68, alpha: 1))
+        case "teal":   return Theme.dynamic(light: UIColor(red: 0.00, green: 0.52, blue: 0.55, alpha: 1),
+                                            dark: UIColor(red: 0.60, green: 0.94, blue: 0.94, alpha: 1))
+        default:       return Theme.Status.neutral
         }
     }
 

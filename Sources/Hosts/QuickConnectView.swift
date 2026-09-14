@@ -74,10 +74,8 @@ struct QuickConnectView: View {
                 }
 
                 Section("Authentication") {
-                    Picker("Method", selection: $auth) {
-                        ForEach(Host.AuthKind.allCases, id: \.self) { Text($0.label).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
+                    SegmentedPill(selection: $auth, options: Host.AuthKind.allCases) { $0.label }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
 
                     switch auth {
                     case .password:
@@ -114,12 +112,12 @@ struct QuickConnectView: View {
 
                 if let error {
                     Text(error)
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .font(Theme.font(12, .medium))
                         .foregroundStyle(Theme.Status.danger)
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Theme.appBackground.ignoresSafeArea())
+            .creamSheet()
             .sheet(isPresented: $managingKeys) { KeyLibraryView() }
             .navigationTitle("Quick Connect")
             .navigationBarTitleDisplayMode(.inline)
@@ -132,7 +130,7 @@ struct QuickConnectView: View {
                 }
             }
         }
-        .tint(Theme.accentOnDark)
+        .tint(Theme.Brand.ink)
     }
 
     private func connect() {

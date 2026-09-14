@@ -30,12 +30,13 @@ enum ChromeTone {
     var rimBlend: BlendMode { self == .dark ? .plusLighter : .normal }
 }
 
-/// Translucent fill for a chrome control. `selected` lifts it a touch so an
-/// active control reads as more present without changing the material.
+/// Translucent fill for a chrome control: a white tile on the ground, a
+/// whiter one on the cream. `selected` lifts it a touch so an active
+/// control reads as more present without changing the material.
 func chromeFill(_ tone: ChromeTone, selected: Bool = false) -> Color {
     switch tone {
-    case .light: return Color.white.opacity(selected ? 0.58 : 0.40)
-    case .dark: return Color.black.opacity(selected ? 0.32 : 0.20)
+    case .light: return Color.white.opacity(selected ? 0.92 : 0.72)
+    case .dark: return Color.white.opacity(selected ? 0.26 : 0.15)
     }
 }
 
@@ -43,8 +44,8 @@ func chromeFill(_ tone: ChromeTone, selected: Bool = false) -> Color {
 /// catches the rim. Pair with `tone.rimBlend`.
 func chromeEdge(_ tone: ChromeTone) -> [Color] {
     switch tone {
-    case .light: return [Color.white.opacity(0.85), Color.white.opacity(0.20)]
-    case .dark: return [Color.white.opacity(0.30), Color.white.opacity(0.06)]
+    case .light: return [Color.white.opacity(0.95), Color.white.opacity(0.30)]
+    case .dark: return [Color.white.opacity(0.55), Color.white.opacity(0.10)]
     }
 }
 
@@ -225,6 +226,47 @@ extension View {
                    shadowRadius: 26,
                    shadowY: 12,
                    iridescent: true)
+    }
+}
+
+// MARK: - Palette bubbles
+
+/// The command palette's surface, the same on the phone as on the Mac: a
+/// near-black bubble in the ground's hue with a hairline edge, a top-lit
+/// rim and a deep shadow. Two of them, detached — a thick input bar and a
+/// results panel — with a gap between rather than a divider. `darken`
+/// sinks the bar a touch below the results.
+struct PaletteBubble: ViewModifier {
+    var cornerRadius: CGFloat
+    var darken: Double = 0
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background(
+                ZStack {
+                    shape.fill(Theme.paneTitleBar.opacity(0.94))
+                    if darken > 0 { shape.fill(Color.black.opacity(darken * 0.3)) }
+                }
+            )
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
+            .overlay(
+                shape.stroke(
+                    LinearGradient(colors: [Color.white.opacity(0.32), .clear],
+                                   startPoint: .top, endPoint: .center),
+                    lineWidth: 1)
+                .blendMode(.plusLighter)
+                .allowsHitTesting(false)
+            )
+            .environment(\.colorScheme, .dark)
+            .shadow(color: .black.opacity(0.45), radius: 30, x: 0, y: 12)
+    }
+}
+
+extension View {
+    func paletteBubble(cornerRadius: CGFloat = 26, darken: Double = 0) -> some View {
+        modifier(PaletteBubble(cornerRadius: cornerRadius, darken: darken))
     }
 }
 

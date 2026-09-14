@@ -49,6 +49,51 @@ enum ContermFont {
     }
 }
 
+/// The app's text face: Manrope, a geometric grotesque with soft terminals,
+/// bundled as a variable font (SIL OFL, licence beside it). Every label,
+/// number and row in the chrome is set in it; the terminal keeps its own
+/// monospace, the wordmark its own face. Registered once, on first use; if
+/// the file is missing the system's rounded face stands in so nothing is
+/// ever unreadable.
+enum TextFace {
+    private static let registered: Bool = {
+        guard let url = Bundle.main.url(forResource: "manrope-variable",
+                                        withExtension: "ttf") else { return false }
+        var error: Unmanaged<CFError>?
+        CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
+        return UIFont(name: "Manrope-Regular", size: 12) != nil
+    }()
+
+    /// The named instance for a weight. Manrope ships seven; the rest of
+    /// SwiftUI's scale rounds to the nearest.
+    private static func instance(_ weight: Font.Weight) -> String {
+        switch weight {
+        case .ultraLight, .thin: return "Manrope-ExtraLight"
+        case .light: return "Manrope-Light"
+        case .medium: return "Manrope-Medium"
+        case .semibold: return "Manrope-SemiBold"
+        case .bold: return "Manrope-Bold"
+        case .heavy, .black: return "Manrope-ExtraBold"
+        default: return "Manrope-Regular"
+        }
+    }
+
+    static func font(_ size: CGFloat, _ weight: Font.Weight) -> Font {
+        guard registered else {
+            return .system(size: size, weight: weight, design: .rounded)
+        }
+        return .custom(instance(weight), fixedSize: size)
+    }
+}
+
+extension Theme {
+    /// Text in the app's face at a size and weight. The size is taken as
+    /// given; call sites pass it through `ui(_:)` when it should scale.
+    static func font(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        TextFace.font(size, weight)
+    }
+}
+
 /// Display text in the Conterm face, with synthesised weight.
 ///
 /// The back copy is offset by a third of a point on the diagonal — beyond

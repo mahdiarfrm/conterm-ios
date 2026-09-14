@@ -31,6 +31,11 @@ final class SignalCenter {
         bySource.values.flatMap { $0 }
     }
 
+    /// Who posted a signal, so a tap on it can go back to the source.
+    func source(of id: String) -> String? {
+        bySource.first { $0.value.contains { $0.id == id } }?.key
+    }
+
     init(filename: String = "signals.json") {
         let directory = FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: ContermSnapshotStore.appGroup)

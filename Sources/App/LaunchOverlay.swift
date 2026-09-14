@@ -9,9 +9,9 @@ import SwiftUI
 /// ~1.4s, and skips entirely on a tap — the animation must never stand
 /// between you and a shell.
 ///
-/// The palette is the *brand* family (warm crimson/coral on cream), which is
-/// deliberately not the cool neutral of the running app. Conterm makes the
-/// same distinction: the entrance is warm, the tool is cold.
+/// The palette is the brand family, warm crimson and coral on cream, and
+/// since the app now sits on the same ground the overlay dissolves into
+/// the home screen rather than cutting to it.
 struct LaunchOverlay: View {
     var onAppear: () -> Void = {}
     let onFinish: () -> Void
@@ -24,7 +24,7 @@ struct LaunchOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            BrandGround().ignoresSafeArea()
 
             // Drifting colour blobs. Static gradients would be cheaper still,
             // but this runs for one second and then never again.
@@ -32,8 +32,7 @@ struct LaunchOverlay: View {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: leaving)) { ctx in
                     Canvas { gc, size in
                         let t = ctx.date.timeIntervalSinceReferenceDate
-                        let colors: [Color] = [Theme.Brand.crimson, Theme.Brand.red,
-                                               Theme.Brand.coral, Theme.Brand.raspberry]
+                        let colors = Theme.palette.lights
                         gc.addFilter(.blur(radius: 110))
                         for (i, color) in colors.enumerated() {
                             let r = min(size.width, size.height) * 0.55
@@ -49,7 +48,7 @@ struct LaunchOverlay: View {
                 .opacity(wash)
                 .ignoresSafeArea()
             } else {
-                Theme.Brand.crimson.opacity(wash * 0.35).ignoresSafeArea()
+                Theme.palette.top.opacity(wash * 0.35).ignoresSafeArea()
             }
 
             VStack(spacing: 14) {

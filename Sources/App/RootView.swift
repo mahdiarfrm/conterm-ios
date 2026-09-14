@@ -11,7 +11,7 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            Theme.appBackground.ignoresSafeArea()
+            BrandGround().ignoresSafeArea()
 
             if !ghostty.ready {
                 // Nothing yet — the overlay is covering this.
@@ -25,10 +25,12 @@ struct RootView: View {
                                                        injected: harness.probe) }
                 } else if ProcessInfo.processInfo.environment["CONTERM_WIDGETS"] != nil {
                     NavigationStack { WidgetGallery() }
+                } else if ProcessInfo.processInfo.environment["CONTERM_DESIGN"] != nil {
+                    NavigationStack { DesignGallery() }
                 } else if ProcessInfo.processInfo.environment["CONTERM_DEMO"] == "1" {
                     RenderCheckScreen(app: app)
                 } else {
-                    HostListView(app: app)
+                    HomeView(app: app, tour: overviewHarness)
                 }
             } else {
                 ProgressView().tint(Theme.accentOnDark)
@@ -45,6 +47,9 @@ struct RootView: View {
             }
         }
         .animation(Theme.crossfade, value: launching)
+        // The ground is one look. Screens on it run dark; a cream sheet
+        // opts into light on its own.
+        .preferredColorScheme(.dark)
         // At the root, because a connection can be started from the host
         // list, the palette or a session, and the prompt has to outlive any
         // of those being dismissed underneath it.
@@ -55,9 +60,22 @@ struct RootView: View {
         // call it.
         .task { if !launching { ghostty.start() } }
         .task {
-            if ProcessInfo.processInfo.environment["CONTERM_OVERVIEW"] != nil,
+            let env = ProcessInfo.processInfo.environment
+            if env["CONTERM_OVERVIEW"] != nil || env["CONTERM_TOUR"] != nil,
                overviewHarness == nil {
                 overviewHarness = OverviewHarness.make()
+            }
+        }
+        // A fleet to look at, for the home screen. Same reasoning as the
+        // other harnesses: a list you can only see by saving three hosts
+        // first is a list that stops getting looked at.
+        .task {
+            guard ProcessInfo.processInfo.environment["CONTERM_SEED_HOSTS"] != nil,
+                  HostStore.shared.hosts.isEmpty else { return }
+            for (alias, hostname, user) in [("web-01", "10.0.0.4", "deploy"),
+                                            ("build", "build.internal", "ci"),
+                                            ("studio", "studio.local", "mahdiar")] {
+                HostStore.shared.add(Host(alias: alias, hostname: hostname, username: user))
             }
         }
         // Exercises the SSH layer against a real server and logs PASS/FAIL.
@@ -84,10 +102,10 @@ private struct StartupFailureView: View {
                 .font(.system(size: 28, weight: .medium))
                 .foregroundStyle(Theme.Status.danger)
             Text("The terminal engine didn't start")
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .font(Theme.font(17, .semibold))
                 .foregroundStyle(Theme.textPrimary)
             Text(message)
-                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .font(Theme.font(13, .medium))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
             Text("libghostty \(Ghostty.versionString)")
@@ -137,6 +155,8 @@ enum OverviewHarness {
     struct Rig {
         let host: Host
         let probe: HostProbeModel
+        /// For the tour, which opens a shell on the same host.
+        let credentials: SSHCredentials
     }
 
     @MainActor
@@ -170,6 +190,6 @@ enum OverviewHarness {
         let probe = HostProbeModel(
             address: host.address,
             runner: SSHCommandRunner(host: host, credentials: credentials, policy: .ask))
-        return Rig(host: host, probe: probe)
+        return Rig(host: host, probe: probe, credentials: credentials)
     }
 }

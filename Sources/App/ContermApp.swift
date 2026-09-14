@@ -46,6 +46,10 @@ final class GhosttyRuntime {
         guard !ready, startupError == nil else { return }
         defer { ready = true }
 
+        // Before any session can exist: whatever is on the island now was
+        // left by a process that is gone.
+        SessionActivityCenter.shared.reapOrphans()
+
         guard let config = Ghostty.Config() else {
             startupError = "Couldn't build a terminal configuration."
             return

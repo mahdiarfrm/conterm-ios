@@ -7,6 +7,9 @@ import SwiftUI
 /// the row *is* the button and editing lives behind a long press.
 struct SnippetsView: View {
     let host: Host?
+    /// On a tab rather than in a sheet: a cream card with its own title row,
+    /// and nothing to dismiss when a snippet is picked.
+    var embedded = false
     let onRun: (Snippet) -> Void
 
     @State private var store = SnippetStore.shared
@@ -17,7 +20,39 @@ struct SnippetsView: View {
     private var visible: [Snippet] { store.snippets(for: host) }
 
     var body: some View {
-        NavigationStack {
+        Group {
+            if embedded {
+                VStack(spacing: 0) {
+                    CardHeader(title: "Snippets", count: visible.count, symbol: "plus") {
+                        creating = true
+                    }
+                    core
+                }
+                .creamCard()
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+                .contermReadableColumn(740)
+            } else {
+                NavigationStack {
+                    core
+                        .creamSheet()
+                        .navigationTitle("Snippets")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { dismiss() }
+                            }
+                            ToolbarItem(placement: .primaryAction) {
+                                Button { creating = true } label: { Image(systemName: "plus") }
+                            }
+                        }
+                }
+            }
+        }
+        .tint(Theme.Brand.ink)
+    }
+
+    private var core: some View {
             List {
                 Section {
                     ForEach(visible) { snippet in
@@ -25,7 +60,7 @@ struct SnippetsView: View {
                             store.noteUsed(snippet)
                             Haptics.shared.fire(.light)
                             onRun(snippet)
-                            dismiss()
+                            if !embedded { dismiss() }
                         } label: {
                             row(snippet)
                         }
@@ -43,32 +78,19 @@ struct SnippetsView: View {
                     if let host {
                         Text("Showing snippets for \(host.alias) and the ones you keep "
                            + "everywhere.")
-                            .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
+                            .font(Theme.font(Theme.ui(11), .medium))
                             .foregroundStyle(Theme.textSecondary)
                     }
                 }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(Theme.appBackground.ignoresSafeArea())
-            .navigationTitle("Snippets")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button { creating = true } label: { Image(systemName: "plus") }
-                }
-            }
             .sheet(item: $editing) { snippet in
                 SnippetEditor(host: host, existing: snippet)
             }
             .sheet(isPresented: $creating) {
                 SnippetEditor(host: host, existing: nil)
             }
-        }
-        .tint(Theme.accentOnDark)
     }
 
     private func row(_ snippet: Snippet) -> some View {
@@ -76,15 +98,15 @@ struct SnippetsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(snippet.title)
-                        .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
+                        .font(Theme.font(Theme.ui(15), .semibold))
                         .foregroundStyle(Theme.textPrimary)
                     if snippet.hostID != nil {
                         Text("this host")
-                            .font(.system(size: Theme.ui(9), weight: .bold))
+                            .font(Theme.font(Theme.ui(9), .bold))
                             .foregroundStyle(Theme.textSecondary)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Capsule().fill(.white.opacity(0.07)))
+                            .background(Capsule().fill(Theme.accentSoft))
                     }
                     if !snippet.submits {
                         Image(systemName: "pencil")
@@ -149,7 +171,7 @@ struct SnippetEditor: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Theme.appBackground.ignoresSafeArea())
+            .creamSheet()
             .navigationTitle(existing == nil ? "New Snippet" : "Snippet")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -173,7 +195,7 @@ struct SnippetEditor: View {
                 submits = existing.submits
             }
         }
-        .tint(Theme.accentOnDark)
+        .tint(Theme.Brand.ink)
     }
 
     private func save() {

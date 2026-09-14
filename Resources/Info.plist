@@ -38,6 +38,17 @@
 	<array>
 		<string>_conterm._tcp</string>
 	</array>
+	<!-- The Linux machine's page is served to its web view from a loopback
+	     port, which App Transport Security counts as local networking, and
+	     the machine's own HTTP (apt's mirrors are plain http) is made by
+	     the app on its behalf. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
@@ -73,5 +84,9 @@
 	</array>
 	<key>UIUserInterfaceStyle</key>
 	<string>Dark</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>manrope-variable.ttf</string>
+	</array>
 </dict>
 </plist>

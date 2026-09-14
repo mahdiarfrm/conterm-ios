@@ -1,0 +1,64 @@
+--- a/cmd/init/main.go	2026-09-13 19:43:45.844032890 +0330
++++ b/cmd/init/main.go	2026-09-13 23:32:01.146097425 +0330
+@@ -14,6 +14,7 @@
+ 	"sync"
+ 	"syscall"
+ 	"time"
++	"unsafe"
+ 
+ 	inittype "github.com/ktock/container2wasm/cmd/init/types"
+ 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
+@@ -304,7 +305,14 @@
+ 		c.Stdout = os.Stdout
+ 		c.Stderr = os.Stderr
+ 		// TODO: signal?
+-		if err := c.Run(); err != nil {
++		if err := c.Start(); err != nil {
++			lastErr = fmt.Errorf("failed to run %v: %w", cmd, err)
++			break
++		}
++		stopWinsize := forwardWinsize(c.Process)
++		err := c.Wait()
++		stopWinsize()
++		if err != nil {
+ 			lastErr = fmt.Errorf("failed to run %v: %w", cmd, err)
+ 			break
+ 		}
+@@ -501,3 +509,37 @@
+ 	s.Process.Args = append(entrypoint, args...)
+ 	return s
+ }
++
++// forwardWinsize keeps a process told of the console's size.
++//
++// The console is not the container's controlling terminal, so when the
++// host resizes it the kernel's SIGWINCH reaches nobody. This polls the
++// size and raises the signal itself; runc answers it by resizing the
++// container's pty, and the shell inside sees a normal window change.
++func forwardWinsize(p *os.Process) (stop func()) {
++	done := make(chan struct{})
++	winsize := func() ([4]uint16, bool) {
++		var ws [4]uint16
++		_, _, e := syscall.Syscall(syscall.SYS_IOCTL, os.Stdin.Fd(), syscall.TIOCGWINSZ, uintptr(unsafe.Pointer(&ws)))
++		return ws, e == 0
++	}
++	last, _ := winsize()
++	go func() {
++		t := time.NewTicker(250 * time.Millisecond)
++		defer t.Stop()
++		for {
++			select {
++			case <-done:
++				return
++			case <-t.C:
++			}
++			ws, ok := winsize()
++			if !ok || ws == last {
++				continue
++			}
++			last = ws
++			p.Signal(syscall.SIGWINCH)
++		}
++	}()
++	return func() { close(done) }
++}

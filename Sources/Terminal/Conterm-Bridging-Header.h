@@ -12,3 +12,8 @@
 
 #import <ghostty.h>
 #import <libssh2.h>
+
+// The user-space network stack for the Linux machine (netstack/, built into
+// Vendor/NetStack.xcframework). Returns the loopback port its WebSocket
+// forwarder listens on, or -1.
+extern int StartNetStack(void);

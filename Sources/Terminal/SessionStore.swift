@@ -71,6 +71,21 @@ final class SessionStore {
         return session
     }
 
+    /// The console of the Linux machine on this phone, resumed if it is up.
+    ///
+    /// There is one machine, so there is one console: a second tap is the
+    /// same shell, the way a second tap on a host is.
+    func localLinux(app: Ghostty.App) -> TerminalSession {
+        if let existing = liveSession(for: LinuxMachine.host) { return existing }
+        sessions.removeAll { $0.host.id == LinuxMachine.host.id }
+        let session = TerminalSession(linux: LinuxMachine.shared, app: app)
+        sessions.insert(session, at: 0)
+        session.boot()
+        SessionActivityCenter.shared.start(for: session)
+        WidgetBridge.refresh()
+        return session
+    }
+
     /// How many live shells this host has.
     func liveCount(for host: Host) -> Int {
         live.filter { $0.host.id == host.id }.count

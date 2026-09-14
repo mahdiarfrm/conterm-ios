@@ -1,43 +1,25 @@
 import SwiftUI
+import os
 
-/// The app's home screen: your hosts.
+/// The Machines tab: everything a shell can be opened on, on a cream
+/// card. This phone first, Macs found on the network next, then the saved
+/// hosts in their groups. Every row carries its own ways in: a shell on
+/// tap, the overview or the Mac's panes as a pill, the files beside it.
+/// What is running lives on the home, in the deck; here is where it is
+/// started from.
 struct HostListView: View {
-    let app: Ghostty.App
+    let store: HostStore
+    let groups: HostGroupStore
+    let nearby: NearbyMacs
+    /// A Mac being paired, its sheet up.
+    @State private var pairing: NearbyMacs.Found?
+    let zoom: Namespace.ID
 
-    @State private var store = HostStore.shared
-    @State private var nearby = NearbyMacs()
+    @Environment(HomeRouter.self) private var router
     private var sessions: SessionStore { SessionStore.shared }
-    @State private var query = ""
-    @State private var session: TerminalSession?
-    @State private var overview: Host?
-    @State private var agentsFor: Host?
-    @State private var contermOn: Host?
-    @State private var route: Route?
-    @State private var importing = false
 
-    @State private var notice: String?
-
-    @State private var groups = HostGroupStore()
     @State private var groupPrompt: GroupPrompt?
     @State private var newGroupName = ""
-    private let editingGroups = false
-
-    /// Everything this screen can put on top of itself.
-    enum Route: Identifiable, Hashable {
-        case palette, keys, settings, newHost, quickConnect
-        case editHost(Host)
-
-        var id: String {
-            switch self {
-            case .palette: return "palette"
-            case .keys: return "keys"
-            case .settings: return "settings"
-            case .newHost: return "newHost"
-            case .quickConnect: return "quickConnect"
-            case .editHost(let host): return "edit-\(host.id)"
-            }
-        }
-    }
 
     /// The two text prompts groups need, as one thing.
     enum GroupPrompt: Identifiable, Hashable {
@@ -64,8 +46,8 @@ struct HostListView: View {
         }
     }
 
-    private var filtered: [Host] {
-        let base = store.hosts.sorted {
+    private var sorted: [Host] {
+        store.hosts.sorted {
             // Most recently used first, then alphabetical — the same
             // frecency instinct as Conterm's palette, minus the decay.
             switch ($0.lastConnectedAt, $1.lastConnectedAt) {
@@ -75,231 +57,131 @@ struct HostListView: View {
             default: return $0.alias.lowercased() < $1.alias.lowercased()
             }
         }
-        guard !query.isEmpty else { return base }
-        let q = query.lowercased()
-        return base.filter {
-            $0.alias.lowercased().contains(q) || $0.hostname.lowercased().contains(q)
-        }
     }
 
-    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Nothing saved: the card carries the empty state. A shell running on
+    /// an unsaved host is on the home's deck, so nothing is stranded here.
+    private var nothingToShow: Bool { store.hosts.isEmpty }
 
     var body: some View {
-        Group {
-            if sizeClass == .regular {
-                // On an iPad the list is a sidebar and the session lives
-                // beside it, which is the whole reason to use a tablet for
-                // this: you can watch a build and pick the next host without
-                // one replacing the other.
-                NavigationSplitView {
-                    sidebar
-                } detail: {
-                    NavigationStack { destinations(detailPlaceholder) }
-                }
-                .navigationSplitViewStyle(.balanced)
-            } else {
-                NavigationStack { destinations(sidebar) }
+        VStack(spacing: 0) {
+            CardHeader(title: "Machines", count: store.hosts.count, symbol: "plus") {
+                router.route = .newHost
             }
-        }
-        .tint(Theme.accentOnDark)
-        // Sessions that died keep their terminal readable while it is open;
-        // once you are back here they are just clutter.
-        .onAppear { sessions.pruneDead() }
-        // Browsing is a multicast listener; it runs while this screen is up
-        // and not a moment longer.
-        .onAppear { nearby.start() }
-        .onDisappear { nearby.stop() }
-    }
-
-    /// The four things this screen can push, attached to whichever column
-    /// owns navigation — the stack itself on a phone, the detail column on a
-    /// tablet. Written once because they are the same destinations either
-    /// way; only the place they land differs.
-    @ViewBuilder
-    private func destinations<Content: View>(_ content: Content) -> some View {
-        content
-            .navigationDestination(item: $session) { live in
-                TerminalScreen(session: live) { host in
-                    session = nil
-                    openNew(host)
+            // The specific things that belong to hosts, as chips: the keys
+            // they connect with, the commands you keep for them, the file
+            // they can be imported from.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    chip("Keys", count: KeyLibrary.shared.keys.count,
+                         symbol: "key.horizontal.fill") { router.route = .keys }
+                        .popIn(0, base: 0.12, enabled: true)
+                    chip("Snippets", count: SnippetStore.shared.snippets.count,
+                         symbol: "apple.terminal.fill") { router.route = .snippets }
+                        .popIn(1, base: 0.12, enabled: true)
+                    chip("Import ssh config", count: nil,
+                         symbol: "square.and.arrow.down") { router.importing = true }
+                        .popIn(2, base: 0.12, enabled: true)
                 }
+                .padding(.horizontal, 22)
+                .padding(.bottom, 12)
             }
-            .navigationDestination(item: $agentsFor) { AgentCenterView(host: $0) }
-            .navigationDestination(item: $contermOn) { ContermRemoteView(host: $0) }
-            .navigationDestination(item: $overview) { host in
-                HostOverviewView(host: host) { target in
-                    // Pop, then push — on separate runloop turns. Doing both
-                    // in one tick makes the pop cancel the push and nothing
-                    // happens at all, which is exactly what "Open a shell"
-                    // did from the overview.
-                    overview = nil
-                    Task { @MainActor in open(target) }
-                }
-            }
-    }
-
-    /// What the detail column shows before you have picked anything. A blank
-    /// half-screen reads as a bug; this reads as an invitation.
-    private var detailPlaceholder: some View {
-        VStack(spacing: 12) {
-            ContermWordmark(height: Theme.ui(34))
-                .foregroundStyle(Theme.textSecondary.opacity(0.55))
-            Text(store.hosts.isEmpty ? "Add a host to get started"
-                                     : "Pick a host to open a shell")
-                .font(.system(size: Theme.ui(14), weight: .medium, design: .rounded))
-                .foregroundStyle(Theme.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.appBackground.ignoresSafeArea())
-    }
-
-    private var sidebar: some View {
-            VStack(spacing: 0) {
-                brandHeader
-                Group {
-                // A live session keeps the list on screen even with nothing
-                // saved — Quick Connect shouldn't strand you on an empty state
-                // while a shell of yours is running behind it.
-                if store.hosts.isEmpty && sessions.live.isEmpty {
-                    EmptyHostsView(route: $route, importing: $importing)
+            Group {
+                if nothingToShow {
+                    VStack(spacing: 0) {
+                        if !unsavedNearby.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                sectionHeader("Nearby", count: unsavedNearby.count)
+                                ForEach(unsavedNearby) { mac in
+                                    NearbyRow(mac: mac, onAdd: { add(mac) },
+                                              onPair: mac.pairPort == nil ? nil : { pairing = mac })
+                                }
+                            }
+                            .padding(.horizontal, 22)
+                            .padding(.top, 6)
+                            .transition(.morph)
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            sectionHeader("This iPhone", count: 1)
+                            LinuxRow(machine: LinuxMachine.shared) {
+                                router.openLinux(from: HomeRouter.zoomID(LinuxMachine.host))
+                            }
+                            .matchedTransitionSource(id: HomeRouter.zoomID(LinuxMachine.host), in: zoom)
+                        }
+                        .padding(.horizontal, 22)
+                        .padding(.top, 6)
+                        EmptyHostsView()
+                    }
+                    .animation(Theme.Spring.morph, value: unsavedNearby.count)
                 } else {
                     list
                 }
-                }
-                .frame(maxHeight: .infinity)
-                // On an iPad the same list stretched to 1024pt, which reads
-                // as a phone screen someone pulled at the corners: rows a
-                // metre wide with a status dot at one end and a chevron at
-                // the other. A column has a readable width whatever the
-                // window is.
-                .contermReadableColumn()
             }
-            .background(Theme.appBackground.ignoresSafeArea())
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.hidden, for: .navigationBar)
-            .safeAreaInset(edge: .bottom) { paletteBar.contermReadableColumn() }
-            // One sheet, not six. SwiftUI attaches each `.sheet` modifier to
-            // the same view, and only one of them reliably wins — stacking
-            // them is why the search bar sometimes did nothing when tapped.
-            // A single presentation driven by a route can't race itself.
-            .sheet(item: $route) { route in
-                switch route {
-                case .palette:
-                    CommandPalette(store: store,
-                                   // Same reason as the overview's shell
-                                   // button: dismissing and navigating in one
-                                   // tick lets one cancel the other.
-                                   onConnect: { host in
-                                       self.route = nil
-                                       Task { @MainActor in open(host) }
-                                   },
-                                   onOverview: { host in
-                                       self.route = nil
-                                       Task { @MainActor in overview = host }
-                                   },
-                                   onNewHost: { self.route = .newHost },
-                                   onQuickConnect: { self.route = .quickConnect },
-                                   onImport: { self.route = nil; importing = true },
-                                   onKeys: { self.route = .keys })
-                case .keys:
-                    KeyLibraryView()
-                case .settings:
-                    SettingsView()
-                case .newHost:
-                    HostEditorView(store: store, groups: groups)
-                case .editHost(let host):
-                    HostEditorView(store: store, groups: groups, existing: host)
-                case .quickConnect:
-                    QuickConnectView(app: app, store: store) {
-                        SessionStore.shared.adopt($0)
-                        self.route = nil
-                        session = $0
-                    }
-                }
-            }
-            // Same reasoning for the two group prompts: one alert, one route.
-            .alert(groupPrompt?.title ?? "", isPresented: Binding(
-                get: { groupPrompt != nil },
-                set: { if !$0 { groupPrompt = nil; newGroupName = "" } })) {
-                TextField("Name", text: $newGroupName)
-                Button("Cancel", role: .cancel) { groupPrompt = nil; newGroupName = "" }
-                Button(groupPrompt?.confirmTitle ?? "OK") { confirmGroupPrompt() }
-            }
-            .fileImporter(isPresented: $importing,
-                          allowedContentTypes: [.item],
-                          allowsMultipleSelection: false) { importConfig($0) }
-            .alert("Import", isPresented: .constant(notice != nil)) {
-                Button("OK") { notice = nil }
-            } message: {
-                Text(notice ?? "")
-            }
-    }
-
-    private var brandHeader: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                ContermWordmark(height: Theme.ui(30))
-                    .foregroundStyle(Theme.accentOnDark)
-                if !store.hosts.isEmpty {
-                    Text("\(store.hosts.count) host\(store.hosts.count == 1 ? "" : "s")")
-                        .font(.system(size: Theme.ui(11), weight: .semibold, design: .rounded))
-                        .foregroundStyle(Theme.textSecondary)
-                        .monospacedDigit()
-                }
-            }
-            Spacer(minLength: 8)
-            headerButton("key") { route = .keys }
-            headerButton("gearshape") { route = .settings }
-            headerButton("plus") { route = .newHost }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
-        .padding(.bottom, 16)
-        .contermReadableColumn()
-        .rollUp()
+        .sheet(item: $pairing) { PairSheet(mac: $0) }
+        // `CONTERM_LINUX=1`: boot the Linux machine at launch, by itself.
+        .task {
+            guard LinuxMachine.tour else { return }
+            try? await Task.sleep(for: .seconds(1))
+            Logger(subsystem: "dev.conterm.ios", category: "tour").notice("tour: linux boot")
+            router.openLinux(from: HomeRouter.zoomID(LinuxMachine.host))
+        }
+        // `CONTERM_PAIR=1`: pair with the first Mac that offers it, by
+        // itself, so the whole exchange can be watched on the simulator.
+        .task {
+            guard ProcessInfo.processInfo.environment["CONTERM_PAIR"] != nil else { return }
+            while !Task.isCancelled, pairing == nil {
+                if let mac = nearby.found.first(where: { $0.pairPort != nil }) {
+                    Logger(subsystem: "dev.conterm.ios", category: "tour").notice("tour: pair start")
+                    pairing = mac
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+        .creamCard()
+        .padding(.horizontal, 10)
+        .padding(.bottom, 8)
+        .arrive(0, enabled: true)
+        // On an iPad the same list stretched to 1024pt reads as a phone
+        // screen someone pulled at the corners. A column has a readable
+        // width whatever the window is.
+        .contermReadableColumn(740)
+        // One alert, one route, for the two group prompts.
+        .alert(groupPrompt?.title ?? "", isPresented: Binding(
+            get: { groupPrompt != nil },
+            set: { if !$0 { groupPrompt = nil; newGroupName = "" } })) {
+            TextField("Name", text: $newGroupName)
+            Button("Cancel", role: .cancel) { groupPrompt = nil; newGroupName = "" }
+            Button(groupPrompt?.confirmTitle ?? "OK") { confirmGroupPrompt() }
+        }
     }
 
-    private func headerButton(_ symbol: String, action: @escaping () -> Void) -> some View {
+    private func chip(_ title: String, count: Int?, symbol: String,
+                      action: @escaping () -> Void) -> some View {
         Button {
             Haptics.shared.fire(.light)
             action()
         } label: {
-            Image(systemName: symbol)
-                .font(.system(size: Theme.ui(15), weight: .semibold))
-                .foregroundStyle(Theme.accentOnDark)
-                .frame(width: Theme.ui(38), height: Theme.ui(38))
-                .glassPill(tone: .dark)
-        }
-        .buttonStyle(PressablePill(scale: 0.9))
-    }
-
-    private var paletteBar: some View {
-        Button {
-            route = .palette
-            Haptics.shared.fire(.light)
-        } label: {
-            HStack(spacing: 9) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: Theme.ui(14), weight: .medium))
-                Text("Search hosts, actions, or a sum")
-                    .font(.system(size: Theme.ui(14), weight: .medium, design: .rounded))
-                Spacer()
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: Theme.ui(11), weight: .semibold))
+                Text(title)
+                    .font(Theme.font(Theme.ui(12), .semibold))
+                if let count {
+                    Text("\(count)")
+                        .font(.system(size: Theme.ui(11), weight: .bold, design: .monospaced))
+                        .opacity(0.7)
+                        .rollingDigits(on: count)
+                }
             }
-            .foregroundStyle(Theme.textSecondary)
-            .padding(.horizontal, 18)
-            .frame(height: Theme.ui(50))
-            .floatingGlass()
-            // The glass is `.interactive()` on iOS 26, which installs its own
-            // touch handling inside the button's label. Declaring the hit
-            // shape explicitly means the tap is resolved by the button's own
-            // frame rather than by whatever the effect decided its shape was.
-            .contentShape(Capsule(style: .continuous))
-            .shadow(color: .black.opacity(0.45), radius: 18, y: 7)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 10)
+            .foregroundStyle(Theme.accent)
+            .padding(.horizontal, 12)
+            .frame(height: Theme.ui(32))
+            .background(Capsule(style: .continuous).fill(Theme.accentSoft))
         }
-        .buttonStyle(PressablePill())
+        .buttonStyle(PressablePill(scale: 0.92))
     }
 
     /// Discovered Macs that aren't already in the list. A Mac you have
@@ -319,45 +201,32 @@ struct HostListView: View {
                         username: mac.username,
                         auth: .privateKey)
         host.distro = "macos"
-        route = .editHost(host)
+        router.route = .editHost(host)
     }
 
     private var list: some View {
         List {
-            // Live shells come first, always. They are the things with state
-            // in them — a running job, a half-typed command — and burying
-            // them under a host list you have to remember to scroll is how
-            // you end up opening a second connection by accident.
-            if !sessions.live.isEmpty {
-                Section {
-                    ForEach(sessions.live) { live in
-                        Button { session = live } label: {
-                            SessionRow(session: live,
-                                       siblings: sessions.liveCount(for: live.host))
-                        }
-                            .buttonStyle(PressableRow())
-                            .listRowBackground(Color.clear)
-                            .listRowSeparatorTint(Theme.stroke)
-                            .swipeActions(edge: .trailing) {
-                                Button("Disconnect") {
-                                    sessions.close(live)
-                                    SoundEffects.shared.play(.disconnect)
-                                }
-                                .tint(Theme.Action.destructive)
-                            }
-                    }
-                } header: {
-                    sectionHeader("Live sessions", count: sessions.live.count)
+            // The Linux machine on this phone. Not a host: nothing is
+            // connected to, and there is exactly one.
+            Section {
+                LinuxRow(machine: LinuxMachine.shared) {
+                    router.openLinux(from: HomeRouter.zoomID(LinuxMachine.host))
                 }
+                .matchedTransitionSource(id: HomeRouter.zoomID(LinuxMachine.host), in: zoom)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.stroke)
+            } header: {
+                sectionHeader("This iPhone", count: 1)
             }
 
             // Macs on this network that are running Conterm, and are not
-            // already saved. Below live sessions and above the saved list:
-            // it is an offer, not a list of things you own.
-            if query.isEmpty, !unsavedNearby.isEmpty {
+            // already saved. Above the saved list: it is an offer, not a
+            // list of things you own.
+            if !unsavedNearby.isEmpty {
                 Section {
                     ForEach(unsavedNearby) { mac in
-                        NearbyRow(mac: mac) { add(mac) }
+                        NearbyRow(mac: mac, onAdd: { add(mac) },
+                                  onPair: mac.pairPort == nil ? nil : { pairing = mac })
                             .listRowBackground(Color.clear)
                             .listRowSeparatorTint(Theme.stroke)
                     }
@@ -366,63 +235,66 @@ struct HostListView: View {
                 }
             }
 
-            // Searching flattens the groups. A query is a question about
-            // every host you have, and hiding half the answers inside a
-            // folded folder would be a lie.
-            if !query.isEmpty {
-                Section {
-                    hostRows(filtered)
-                } header: {
-                    sectionHeader("Matches", count: filtered.count)
-                }
-            } else {
-                ForEach(groups.ordered) { group in
-                    let members = filtered.filter { $0.groupID == group.id }
-                    if !members.isEmpty || editingGroups {
-                        Section {
-                            if !group.collapsed { hostRows(members) }
-                        } header: {
-                            groupHeader(group, count: members.count)
-                        }
-                    }
-                }
-
-                let loose = filtered.filter { host in
-                    host.groupID == nil || groups.group(id: host.groupID) == nil
-                }
-                if !loose.isEmpty {
+            ForEach(groups.ordered) { group in
+                let members = sorted.filter { $0.groupID == group.id }
+                if !members.isEmpty {
                     Section {
-                        hostRows(loose)
+                        if !group.collapsed { hostRows(members) }
                     } header: {
-                        sectionHeader(groups.groups.isEmpty ? "Hosts" : "Ungrouped",
-                                      count: loose.count)
+                        groupHeader(group, count: members.count)
                     }
+                }
+            }
+
+            let loose = sorted.filter { host in
+                host.groupID == nil || groups.group(id: host.groupID) == nil
+            }
+            if !loose.isEmpty {
+                Section {
+                    hostRows(loose)
+                } header: {
+                    sectionHeader(groups.groups.isEmpty ? "Hosts" : "Ungrouped",
+                                  count: loose.count)
                 }
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .contentMargins(.top, 0, for: .scrollContent)
+        .contentMargins(.bottom, 12, for: .scrollContent)
     }
 
     @ViewBuilder
     private func hostRows(_ hosts: [Host]) -> some View {
         ForEach(Array(hosts.enumerated()), id: \.element.id) { index, host in
-            HStack(spacing: 0) {
-                Button { open(host) } label: {
-                    HostRow(host: host, group: groups.group(id: host.groupID))
+            let isMac = host.distro == Distro.macos.rawValue
+            HStack(spacing: 6) {
+                Button { router.open(host, from: HomeRouter.zoomID(host)) } label: {
+                    HostRow(host: host, group: groups.group(id: host.groupID),
+                            liveCount: sessions.liveCount(for: host))
                 }
                 .buttonStyle(PressableRow())
-                // The briefing is a peer of connecting, not buried in a
-                // menu — "how is that box?" is the question you open the
-                // app for as often as "give me a shell".
-                Button { overview = host } label: {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: Theme.ui(15), weight: .medium))
-                        .foregroundStyle(Theme.textSecondary)
-                        .frame(width: Theme.hitTarget, height: Theme.hitTarget)
-                        .contentShape(Rectangle())
+                .matchedTransitionSource(id: HomeRouter.zoomID(host), in: zoom)
+                // The second way in is a peer of connecting, not buried in
+                // a menu: "how is that box?" on a server, "what did I leave
+                // open?" on a Mac. The third, the files, sits beside it.
+                if isMac {
+                    pill("Panes", symbol: "macwindow") { router.showPanes(host) }
+                        .accessibilityLabel("Panes on \(host.alias)")
+                    circle("waveform.path.ecg") {
+                        router.showOverview(host, from: HomeRouter.overviewZoomID(host))
+                    }
+                    .matchedTransitionSource(id: HomeRouter.overviewZoomID(host), in: zoom)
+                    .accessibilityLabel("Overview of \(host.alias)")
+                } else {
+                    pill("Overview", symbol: "waveform.path.ecg") {
+                        router.showOverview(host, from: HomeRouter.overviewZoomID(host))
+                    }
+                    .matchedTransitionSource(id: HomeRouter.overviewZoomID(host), in: zoom)
+                    .accessibilityLabel("Overview of \(host.alias)")
+                    circle("folder.fill") { router.showFiles(host) }
+                        .accessibilityLabel("Files on \(host.alias)")
                 }
-                .buttonStyle(.plain)
             }
             .listRowBackground(Color.clear)
             .listRowSeparatorTint(Theme.stroke)
@@ -430,11 +302,42 @@ struct HostListView: View {
             .swipeActions(edge: .trailing) {
                 Button("Delete") { store.delete(host) }
                     .tint(Theme.Action.destructive)
-                Button("Edit") { route = .editHost(host) }
+                Button("Edit") { router.route = .editHost(host) }
                     .tint(Theme.Action.neutral)
             }
             .contextMenu { groupMenu(for: host) }
         }
+    }
+
+    /// A row's second way in, with a word on it.
+    private func pill(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: symbol)
+                    .font(.system(size: Theme.ui(11), weight: .bold))
+                Text(title)
+                    .font(Theme.font(Theme.ui(12), .bold))
+            }
+            .foregroundStyle(Theme.accent)
+            .padding(.horizontal, 12)
+            .frame(height: Theme.ui(34))
+            .background(Capsule(style: .continuous).fill(Theme.accentSoft))
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(PressablePill(scale: 0.9))
+    }
+
+    /// A row's third way in: one glyph in a circle.
+    private func circle(_ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: Theme.ui(12), weight: .bold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: Theme.ui(34), height: Theme.ui(34))
+                .background(Circle().fill(Theme.accentSoft))
+                .contentShape(Circle())
+        }
+        .buttonStyle(PressablePill(scale: 0.9))
     }
 
     /// Move a host between groups without opening the editor. Assigning a
@@ -442,7 +345,14 @@ struct HostListView: View {
     /// round trip through a form.
     @ViewBuilder
     private func groupMenu(for host: Host) -> some View {
-        Menu("Move to group", systemImage: "folder") {
+        Button("Files", systemImage: "folder") { router.showFiles(host) }
+        if host.distro != Distro.macos.rawValue, !Handoff.macs.isEmpty {
+            Button("Continue on Mac", systemImage: "macbook.and.iphone") {
+                router.continueOnMac(host)
+            }
+        }
+        Divider()
+        Menu("Move to group", systemImage: "folder.badge.gearshape") {
             ForEach(groups.ordered) { group in
                 Button {
                     var updated = host
@@ -469,13 +379,13 @@ struct HostListView: View {
         }
         if sessions.liveCount(for: host) > 0 {
             Button("Open another shell", systemImage: "plus.rectangle.on.rectangle") {
-                openNew(host)
+                router.openNew(host)
             }
         }
-        Button("Edit host", systemImage: "pencil") { route = .editHost(host) }
-        Button("Overview", systemImage: "info.circle") { overview = host }
-        Button("Agents", systemImage: "sparkles") { agentsFor = host }
-        Button("Conterm on this Mac", systemImage: "macwindow") { contermOn = host }
+        Button("Edit host", systemImage: "pencil") { router.route = .editHost(host) }
+        Button("Overview", systemImage: "waveform.path.ecg") { router.showOverview(host) }
+        Button("Agents", systemImage: "sparkles") { router.agentsFor = host }
+        Button("Panes on this Mac", systemImage: "macwindow") { router.showPanes(host) }
     }
 
     private func groupHeader(_ group: HostGroup, count: Int) -> some View {
@@ -490,9 +400,8 @@ struct HostListView: View {
                 Circle()
                     .fill(group.color)
                     .frame(width: 6, height: 6)
-                    .shadow(color: group.color.opacity(0.7), radius: 3)
                 Text(group.name.uppercased())
-                    .font(.system(size: Theme.ui(11), weight: .bold))
+                    .font(Theme.font(Theme.ui(11), .bold))
                     .tracking(1.1)
                 Text("\(count)")
                     .font(.system(size: Theme.ui(11), weight: .bold, design: .monospaced))
@@ -524,18 +433,20 @@ struct HostListView: View {
         }
     }
 
-    private func sectionHeader(_ title: String, count: Int) -> some View {
+    private func sectionHeader(_ title: String, count: Int,
+                               tint: Color = Theme.textSecondary) -> some View {
         HStack(spacing: 8) {
             Text(title.uppercased())
-                .font(.system(size: Theme.ui(11), weight: .bold))
+                .font(Theme.font(Theme.ui(11), .bold))
                 .tracking(1.1)
             Text("\(count)")
                 .font(.system(size: Theme.ui(11), weight: .bold, design: .monospaced))
                 .monospacedDigit()
                 .opacity(0.65)
+                .rollingDigits(on: count)
             Spacer()
         }
-        .foregroundStyle(Theme.textSecondary)
+        .foregroundStyle(tint)
         .padding(.vertical, 4)
         .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 6, trailing: 20))
         .listRowBackground(Color.clear)
@@ -556,132 +467,51 @@ struct HostListView: View {
             groups.update(group)
         }
     }
-
-    /// Always a fresh shell, even if this host already has one.
-    private func openNew(_ host: Host) {
-        guard let credentials = KeyStore.shared.credentials(for: host) else {
-            SoundEffects.shared.play(.error)
-            route = .editHost(host)
-            return
-        }
-        SoundEffects.shared.tap(.connect, haptic: .medium)
-        session = sessions.newSession(for: host, app: app, credentials: credentials)
-        store.noteConnected(host)
-    }
-
-    private func open(_ host: Host) {
-        guard let credentials = KeyStore.shared.credentials(for: host) else {
-            // No secret stored — send them to the editor rather than opening a
-            // terminal that can only fail.
-            SoundEffects.shared.play(.error)
-            Haptics.shared.fire(.warning)
-            route = .editHost(host)
-            return
-        }
-        SoundEffects.shared.tap(.connect, haptic: .medium)
-        // Resumes the shell if this host already has one. Opening a second
-        // connection to a box you are already on is never what the tap meant.
-        let s = SessionStore.shared.session(for: host, app: app,
-                                            credentials: credentials)
-        store.noteConnected(host)
-        session = s
-    }
-
-    private func importConfig(_ result: Result<[URL], Error>) {
-        guard case .success(let urls) = result, let url = urls.first else { return }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-
-        let parsed = SSHConfig.parse(fileAt: url)
-        let added = store.merge(parsed.hosts, defaultUsername: "root")
-
-        var message = "Imported \(added) host\(added == 1 ? "" : "s")."
-        if added < parsed.hosts.count {
-            message += " \(parsed.hosts.count - added) already existed."
-        }
-        if !parsed.unresolvedIncludes.isEmpty {
-            // Never lose half a fleet quietly.
-            message += " \(parsed.unresolvedIncludes.count) Include(s) couldn't be followed."
-        }
-        message += " Each host still needs a password or key before it can connect."
-        notice = message
-    }
 }
 
-/// A shell you already have open.
-///
-/// Deliberately not the same shape as a host row: this one is *live*, and the
-/// difference has to be legible at a glance or the two sections read as one
-/// list with a duplicate in it. The gem pulses while connecting, the subtitle
-/// says what the session is doing rather than where it lives, and the grid
-/// size is there because it is the one number that proves the far end and the
-/// terminal agree.
-private struct SessionRow: View {
-    let session: TerminalSession
-    /// How many live shells this host has, so "#2" only appears when it means
-    /// something.
-    var siblings: Int = 1
+/// The title row of a cream card that is a tab: the name, a count, and the
+/// one thing you can add.
+struct CardHeader: View {
+    let title: String
+    var count: Int?
+    var symbol: String?
+    var animated = true
+    var action: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: 11) {
-            Circle()
-                .fill(tint)
-                .frame(width: 6, height: 6)
-                .shadow(color: tint.opacity(0.7), radius: 4)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(session.title ?? session.host.alias)
-                    .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                if siblings > 1 {
-                    Text("#\(session.ordinal)")
-                        .font(.system(size: Theme.ui(10), weight: .bold, design: .monospaced))
-                        .foregroundStyle(Theme.textSecondary)
-                        .monospacedDigit()
-                }
-                Text(subtitle)
-                    .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(title)
+                .font(Theme.font(Theme.ui(34), .heavy))
+                .foregroundStyle(Theme.textPrimary)
+                .rollUp(enabled: true)
+            if let count, count > 0 {
+                Text("\(count)")
+                    .font(Theme.font(Theme.ui(16), .bold))
                     .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 8)
-
-            if case .connected = session.state {
-                Text("\(session.grid.columns)\u{00d7}\(session.grid.rows)")
-                    .font(.system(size: Theme.ui(10), weight: .semibold, design: .monospaced))
                     .monospacedDigit()
-                    .foregroundStyle(Theme.textSecondary)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .glassPill(tone: .dark)
+                    .rollingDigits(on: count)
+                    .rollUp(delay: 0.05, enabled: true)
             }
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: Theme.ui(11), weight: .semibold))
-                .foregroundStyle(Theme.textSecondary.opacity(0.7))
+            Spacer(minLength: 0)
+            if let symbol, let action {
+                Button {
+                    Haptics.shared.fire(.light)
+                    action()
+                } label: {
+                    Image(systemName: symbol)
+                        .font(.system(size: Theme.ui(14), weight: .bold))
+                        .foregroundStyle(Theme.onAccent)
+                        .frame(width: Theme.ui(38), height: Theme.ui(38))
+                        .background(Circle().fill(Theme.accent))
+                }
+                .buttonStyle(PressablePill(scale: 0.86))
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 10 }
+                .rollUp(delay: 0.08, enabled: true)
+            }
         }
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
-    }
-
-    private var tint: Color {
-        switch session.state {
-        case .connecting: return Theme.Status.working
-        case .connected:  return Theme.Status.ready
-        case .failed:     return Theme.Status.danger
-        case .closed:     return Theme.Status.neutral
-        }
-    }
-
-    private var subtitle: String {
-        switch session.state {
-        case .connecting: return "connecting\u{2026}"
-        case .connected:  return session.host.displaySubtitle
-        case .failed(let why): return why
-        case .closed(let why): return why ?? "closed"
-        }
+        .padding(.horizontal, 22)
+        .padding(.top, 24)
+        .padding(.bottom, 10)
     }
 }
 
@@ -698,38 +528,32 @@ private struct HostRow: View {
             Circle()
                 .fill(gemColor)
                 .frame(width: 6, height: 6)
-                .shadow(color: gemColor.opacity(0.6), radius: 3)
+
+            DistroMark(distro: host.distro.flatMap(Distro.init(rawValue:)), size: Theme.ui(16))
+                .foregroundStyle(Theme.textSecondary)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(host.alias)
-                    .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
+                    .font(Theme.font(Theme.ui(15), .semibold))
                     .foregroundStyle(Theme.textPrimary)
                 Text(host.displaySubtitle)
-                    .font(.system(size: Theme.ui(12), weight: .medium, design: .rounded))
+                    .font(Theme.font(Theme.ui(12), .medium))
                     .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
             Spacer(minLength: 8)
 
             if liveCount > 0 {
                 Text(liveCount == 1 ? "open" : "\(liveCount) open")
-                    .font(.system(size: Theme.ui(10), weight: .semibold, design: .rounded))
-                    .foregroundStyle(Theme.Status.ready)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .glassPill(tone: .dark)
+                    .font(Theme.font(Theme.ui(10), .semibold))
+                    .badgePill(tint: Theme.Status.ready)
             } else if !hasSecret {
                 Text("no key")
-                    .font(.system(size: Theme.ui(10), weight: .semibold, design: .rounded))
-                    .foregroundStyle(Theme.warning)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .glassPill(tone: .dark)
+                    .font(Theme.font(Theme.ui(10), .semibold))
+                    .badgePill(tint: Theme.Status.attention)
             }
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: Theme.ui(11), weight: .semibold))
-                .foregroundStyle(Theme.textSecondary.opacity(0.7))
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())
@@ -744,8 +568,7 @@ private struct HostRow: View {
 }
 
 private struct EmptyHostsView: View {
-    @Binding var route: HostListView.Route?
-    @Binding var importing: Bool
+    @Environment(HomeRouter.self) private var router
 
     var body: some View {
         VStack(spacing: 14) {
@@ -754,46 +577,38 @@ private struct EmptyHostsView: View {
                 .foregroundStyle(Theme.textSecondary)
                 .rollUp(delay: 0.05)
             Text("No hosts yet")
-                .font(.system(size: 19, weight: .semibold, design: .rounded))
+                .font(Theme.font(19, .semibold))
                 .foregroundStyle(Theme.textPrimary)
                 .rollUp(delay: 0.11)
             Text("Connect straight away with user@host, or save hosts you use often.")
-                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .font(Theme.font(13, .medium))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
                 .rollUp(delay: 0.17)
 
-            Button("Quick Connect") { route = .quickConnect }
-                .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
-                .foregroundStyle(Theme.paneTile)
-                .padding(.horizontal, 22)
-                .frame(height: Theme.hitTarget)
-                .background(Capsule().fill(Theme.accentOnDark))
+            Button("Quick Connect") { router.route = .quickConnect }
+                .font(Theme.font(Theme.ui(15), .semibold))
+                .filledPill()
+                .buttonStyle(PressablePill())
                 .padding(.top, 6)
                 .rollUp(delay: 0.23)
 
             HStack(spacing: 10) {
-                Button("Add host") { route = .newHost }
-                    .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
-                    .foregroundStyle(Theme.accentOnDark)
-                    .padding(.horizontal, 18)
-                    .frame(height: Theme.hitTarget)
-                    .glassPill(tone: .dark)
+                Button("Add host") { router.route = .newHost }
+                    .font(Theme.font(Theme.ui(14), .semibold))
+                    .softPill()
+                    .buttonStyle(PressablePill())
 
-                Button("Keys") { route = .keys }
-                    .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
-                    .foregroundStyle(Theme.accentOnDark)
-                    .padding(.horizontal, 18)
-                    .frame(height: Theme.hitTarget)
-                    .glassPill(tone: .dark)
+                Button("Keys") { router.route = .keys }
+                    .font(Theme.font(Theme.ui(14), .semibold))
+                    .softPill()
+                    .buttonStyle(PressablePill())
 
-                Button("Import ssh config") { importing = true }
-                    .font(.system(size: Theme.ui(14), weight: .semibold, design: .rounded))
-                    .foregroundStyle(Theme.accentOnDark)
-                    .padding(.horizontal, 18)
-                    .frame(height: Theme.hitTarget)
-                    .glassPill(tone: .dark)
+                Button("Import ssh config") { router.importing = true }
+                    .font(Theme.font(Theme.ui(14), .semibold))
+                    .softPill()
+                    .buttonStyle(PressablePill())
             }
             .padding(.top, 4)
             .rollUp(delay: 0.29)
@@ -807,54 +622,129 @@ private struct EmptyHostsView: View {
 /// When the Mac says Remote Login is off the row says so instead of pretending
 /// it can be added — the connection would be refused, and "connection refused"
 /// three screens later is a worse way to learn it.
-private struct NearbyRow: View {
+struct NearbyRow: View {
     let mac: NearbyMacs.Found
     let onAdd: () -> Void
+    /// Pairing, when the Mac offers it: a key made here, allowed there.
+    var onPair: (() -> Void)?
+
+    private var canAct: Bool { onPair != nil || mac.sshEnabled }
 
     var body: some View {
-        Button(action: mac.sshEnabled ? onAdd : {}) {
+        Button(action: onPair ?? (mac.sshEnabled ? onAdd : {})) {
             HStack(spacing: 12) {
                 Image(systemName: "laptopcomputer")
                     .font(.system(size: Theme.ui(15), weight: .medium))
-                    .foregroundStyle(mac.sshEnabled ? Theme.sshAccent : Theme.textSecondary)
+                    .foregroundStyle(mac.sshEnabled ? Theme.accent : Theme.textSecondary)
                     .frame(width: Theme.ui(22))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(mac.name)
-                        .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
+                        .font(Theme.font(Theme.ui(15), .semibold))
                         .foregroundStyle(Theme.textPrimary)
                         .lineLimit(1)
                     Text(subtitle)
-                        .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
-                        .foregroundStyle(mac.sshEnabled ? Theme.textSecondary : Theme.warning)
+                        .font(Theme.font(Theme.ui(11), .medium))
+                        .foregroundStyle(mac.sshEnabled ? Theme.textSecondary : Theme.Status.attention)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Spacer(minLength: 8)
 
-                if mac.sshEnabled {
-                    Text("Add")
-                        .font(.system(size: Theme.ui(12), weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.appBackground)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 5)
-                        .background(Capsule().fill(Theme.accentOnDark))
+                if canAct {
+                    Text(onPair != nil ? "Pair" : "Add")
+                        .font(Theme.font(Theme.ui(12), .bold))
+                        .foregroundStyle(Theme.onAccent)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule(style: .continuous).fill(Theme.accent))
                 }
             }
             .padding(.vertical, 6)
         }
         .buttonStyle(PressableRow())
-        .disabled(!mac.sshEnabled)
+        .disabled(!canAct)
     }
 
     private var subtitle: String {
         guard mac.sshEnabled else {
-            return "Remote Login is off — turn it on in System Settings → "
+            return onPair != nil
+                ? "Remote Login is off on that Mac. Pair anyway; the Mac opens the switch."
+                : "Remote Login is off — turn it on in System Settings → "
                  + "General → Sharing on that Mac."
         }
         var parts = [mac.hostname]
         if let version = mac.appVersion { parts.append("Conterm \(version)") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Debian on this phone: one row, whatever the machine is doing.
+struct LinuxRow: View {
+    let machine: LinuxMachine
+    let onOpen: () -> Void
+
+    private var available: Bool { LinuxMachine.imageURL != nil }
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 12) {
+                DistroMark(distro: .debian, size: Theme.ui(16))
+                    .foregroundStyle(available ? Theme.accent : Theme.textSecondary)
+                    .frame(width: Theme.ui(22))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Debian")
+                        .font(Theme.font(Theme.ui(15), .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(Theme.font(Theme.ui(11), .medium))
+                        .foregroundStyle(subtitleTint)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .morph(on: subtitle, alignment: .leading)
+                }
+
+                Spacer(minLength: 8)
+
+                if available {
+                    Text(action)
+                        .font(Theme.font(Theme.ui(12), .bold))
+                        .foregroundStyle(Theme.onAccent)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule(style: .continuous).fill(Theme.accent))
+                }
+            }
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(PressableRow())
+        .disabled(!available)
+    }
+
+    private var subtitle: String {
+        guard available else {
+            return "This build has no Linux image. Run scripts/linux-image.sh and build again."
+        }
+        switch machine.state {
+        case .off: return "Linux on this iPhone \u{00b7} off"
+        case .starting(let phase): return "Linux on this iPhone \u{00b7} \(phase)\u{2026}"
+        case .running: return "Linux on this iPhone \u{00b7} running"
+        case .stopped(let reason): return reason
+        }
+    }
+
+    private var subtitleTint: Color {
+        if case .stopped = machine.state { return Theme.Status.attention }
+        return Theme.textSecondary
+    }
+
+    private var action: String {
+        switch machine.state {
+        case .off, .stopped: return "Boot"
+        case .starting, .running: return "Open"
+        }
     }
 }

@@ -2,14 +2,30 @@ import SwiftUI
 
 /// A live session: the terminal, the key row, and whatever the connection is
 /// currently doing.
+///
+/// The title is a button. Tapping it drops the shell deck over the
+/// terminal: every other shell you have running, one tap from being the
+/// one on screen, and a new one on this host. A desktop terminal has tabs
+/// for this; a phone has no room for a tab strip, so the strip appears
+/// only when asked for.
 struct TerminalScreen: View {
     let session: TerminalSession
+    /// The same shell, continued in a tab of Conterm on a Mac. Declared
+    /// before `onNewShell` so a trailing closure still means a new shell.
+    var onHandoff: ((Host) -> Void)?
+    /// Another running shell picked from the deck, to take this screen.
+    var onSwitch: ((TerminalSession) -> Void)?
     /// Supplied by whoever pushed this screen, so a second shell is opened by
     /// the thing that owns navigation rather than from in here.
     var onNewShell: ((Host) -> Void)?
     @Environment(\.dismiss) private var dismiss
+    @Environment(HomeRouter.self) private var router: HomeRouter?
     @State private var finding = false
     @State private var showingSnippets = false
+    /// The deck, dropped over the terminal.
+    @State private var switching = false
+
+    private var others: Int { SessionStore.shared.live.filter { $0 !== session }.count }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,18 +45,49 @@ struct TerminalScreen: View {
                     if finding { FindBar(session: session, finding: $finding) }
                 }
             }
+            .overlay(alignment: .top) {
+                if switching { switcher }
+            }
 
             if Self.showDiagnostics { diagnostics }
             KeyAccessoryBar(session: session)
         }
-        .background(Theme.appBackground.ignoresSafeArea())
+        // The terminal's own black, under everything including the
+        // keyboard: the keyboard is translucent and shows what is behind
+        // it, and the ground's red behind a dark keyboard read as a bug.
+        .background(Theme.paneTile.ignoresSafeArea(.all, edges: .all))
         .animation(Theme.Spring.soft, value: session.state)
         .animation(Theme.crossfade, value: session.reconnectingIn)
         .animation(Theme.Spring.snappy, value: finding)
+        .animation(Theme.Spring.snappy, value: switching)
         .navigationTitle(session.title ?? session.host.alias)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.paneTitleBar, for: .navigationBar)
         .toolbar {
+            // The title, as the way to the other shells: the name of this
+            // one, and a chevron when there is anywhere else to go.
+            ToolbarItem(placement: .principal) {
+                Button {
+                    Haptics.shared.fire(.light)
+                    switching.toggle()
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(session.title ?? session.host.alias)
+                            .font(Theme.font(Theme.ui(15), .semibold))
+                            .foregroundStyle(Theme.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: Theme.ui(9), weight: .bold))
+                            .foregroundStyle(Theme.textSecondary)
+                            .rotationEffect(.degrees(switching ? 180 : 0))
+                    }
+                    .frame(maxWidth: 220)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Switch shell")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("Snippets", systemImage: "text.badge.plus") {
@@ -49,12 +96,25 @@ struct TerminalScreen: View {
                     Button("Find in scrollback", systemImage: "magnifyingglass") {
                         finding = true
                     }
+                    if others > 0 {
+                        Button("Switch shell", systemImage: "rectangle.stack") {
+                            switching = true
+                        }
+                    }
                     Button("Open another shell", systemImage: "plus.rectangle.on.rectangle") {
                         onNewShell?(session.host)
                     }
-                    .disabled(onNewShell == nil)
+                    .disabled(onNewShell == nil || session.isLocalLinux)
+                    if let onHandoff, session.host.distro != Distro.macos.rawValue,
+                       !session.isLocalLinux, !Handoff.macs.isEmpty {
+                        Button("Continue on Mac", systemImage: "macbook.and.iphone") {
+                            onHandoff(session.host)
+                        }
+                    }
                     Divider()
-                    Button("Disconnect", systemImage: "bolt.horizontal.circle", role: .destructive) {
+                    Button(session.isLocalLinux ? "Power off" : "Disconnect",
+                           systemImage: session.isLocalLinux ? "power" : "bolt.horizontal.circle",
+                           role: .destructive) {
                         SessionStore.shared.close(session)
                         dismiss()
                     }
@@ -71,6 +131,8 @@ struct TerminalScreen: View {
             IdleTimer.terminalAppeared()
         }
         .onDisappear { IdleTimer.terminalDisappeared() }
+        // The harness: `router.switcherRequest` toggles the deck.
+        .onChange(of: router?.switcherRequest ?? 0) { switching.toggle() }
         .sheet(isPresented: $showingSnippets) {
             SnippetsView(host: session.host) { snippet in
                 // Typed, not pasted, and submitted with a real Return — the
@@ -84,6 +146,36 @@ struct TerminalScreen: View {
 }
 
 extension TerminalScreen {
+    /// The deck over the terminal: the other shells, then the rest of the
+    /// screen dimmed, a tap on which puts it away. The keyboard goes down
+    /// with it; the cards want the whole width.
+    fileprivate var switcher: some View {
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture { switching = false }
+            ShellDeck(mode: .switcher(current: session),
+                      onPick: { picked in
+                          switching = false
+                          guard picked !== session else { return }
+                          onSwitch?(picked)
+                      },
+                      onNew: onNewShell == nil ? nil : {
+                          switching = false
+                          onNewShell?(session.host)
+                      })
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 12)
+                .background(Theme.paneTitleBar)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(Theme.stroke).frame(height: 0.5)
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+        .onAppear { session.surfaceView.dismissKeyboard() }
+    }
+
     /// The strip is scaffolding, not product: it earned its keep finding the
     /// libxev wakeup bug and it stays reachable for the next one, but a
     /// working terminal shouldn't wear its instrumentation on screen.
@@ -130,7 +222,8 @@ extension TerminalScreen {
             if let seconds = session.reconnectingIn {
                 strip("reconnecting in \(seconds)s", tint: Theme.warning, busy: false)
             } else {
-                strip(session.phase?.label ?? "connecting", tint: Theme.sshAccent, busy: true)
+                strip(session.bootPhase ?? session.phase?.label ?? "connecting",
+                      tint: Theme.sshAccent, busy: true)
             }
         case .failed(let why):
             strip(why, tint: Theme.Status.danger, busy: false, retry: true)
@@ -139,39 +232,51 @@ extension TerminalScreen {
         }
     }
 
+    /// A capsule floating under the bar, in glass: the gem, what the
+    /// connection is doing, and a way to try again when it has stopped.
     fileprivate func strip(_ text: String,
                            tint: Color,
                            busy: Bool,
                            retry: Bool = false) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 9) {
             if busy {
                 ProgressView().controlSize(.mini).tint(tint)
             } else {
                 Circle()
                     .fill(tint)
-                    .frame(width: 5, height: 5)
-                    .shadow(color: tint.opacity(0.7), radius: 3)
+                    .frame(width: 7, height: 7)
             }
             Text(text)
-                .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
-                .foregroundStyle(Theme.textSecondary)
+                .font(Theme.font(Theme.ui(12.5), .semibold))
+                .foregroundStyle(Color.white.opacity(0.92))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer(minLength: 4)
+                // "resolving" becomes "authenticating" becomes gone — each
+                // phase focuses in over the last rather than flickering.
+                .morph(on: text, alignment: .leading)
             if retry {
-                Button("Reconnect") { session.reconnect() }
-                    .font(.system(size: Theme.ui(11), weight: .semibold, design: .rounded))
-                    .foregroundStyle(Theme.sshAccent)
-                    .buttonStyle(.plain)
+                Button {
+                    Haptics.shared.fire(.light)
+                    session.reconnect()
+                } label: {
+                    Text("Reconnect")
+                        .font(Theme.font(Theme.ui(12), .bold))
+                        .foregroundStyle(Theme.Brand.ink)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 5)
+                        .background(Capsule(style: .continuous).fill(Theme.Brand.cream))
+                }
+                .buttonStyle(PressablePill(scale: 0.9))
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 7)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.stroke).frame(height: 0.5)
-        }
-        .transition(.move(edge: .top).combined(with: .opacity))
+        .padding(.leading, 16)
+        .padding(.trailing, retry ? 8 : 16)
+        .padding(.vertical, retry ? 6 : 10)
+        .floatingGlass()
+        .environment(\.colorScheme, .dark)
+        .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+        .padding(.top, 10)
+        .transition(.morph)
     }
 }
 
@@ -211,11 +316,12 @@ private struct FindBar: View {
 
             if !session.searchQuery.isEmpty {
                 Text(count)
-                    .font(.system(size: Theme.ui(11), weight: .semibold, design: .rounded))
+                    .font(Theme.font(Theme.ui(11), .semibold))
                     .foregroundStyle(session.searchTotal == 0 ? Theme.warning
                                                              : Theme.textSecondary)
                     .monospacedDigit()
                     .lineLimit(1)
+                    .rollingDigits(on: count)
             }
 
             Button { session.stepSearch(next: false) } label: {

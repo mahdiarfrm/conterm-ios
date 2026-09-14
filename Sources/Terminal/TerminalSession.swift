@@ -102,6 +102,13 @@ final class TerminalSession: Identifiable, Hashable {
     private var connection: SSHConnection?
     private var channel: SSHChannelID?
     private var credentials: SSHCredentials?
+    /// Set when this session is a console of the local Linux machine rather
+    /// than an SSH channel; the terminal surface is otherwise identical.
+    private(set) var linux: LinuxMachine?
+    var isLocalLinux: Bool { linux != nil }
+    /// What the machine is doing while it boots, in the status strip's
+    /// place for a connect phase.
+    private(set) var bootPhase: String?
     private var holdsConnection = false
     /// True once the user has closed this on purpose, which is the difference
     /// between "reconnect" and "leave it alone".
@@ -141,6 +148,58 @@ final class TerminalSession: Identifiable, Hashable {
         controller.onSearchCount = { [weak self] total, selected in
             if let total { self?.searchTotal = total }
             if let selected { self?.searchSelected = selected }
+        }
+    }
+
+    /// A console of the Linux machine on this phone.
+    convenience init(linux: LinuxMachine, app: Ghostty.App) {
+        self.init(host: LinuxMachine.host, app: app)
+        self.linux = linux
+        guard let controller = surfaceView.controller else { return }
+        controller.onWrite = { [weak self] data in
+            guard let self else { return }
+            self.bytesOut += data.count
+            self.linux?.write(data)
+        }
+        controller.onResize = { [weak linux] columns, rows in
+            linux?.resize(columns: columns, rows: rows)
+        }
+    }
+
+    /// Power the machine on, or pick up the console of one already running.
+    func boot() {
+        guard let linux else { return }
+        userClosed = false
+        linux.onOutput = { [weak self] data in self?.receive(data) }
+        linux.onState = { [weak self] state in self?.machineChanged(state) }
+        banner("Conterm \u{2014} Debian on this iPhone", tint: .accent)
+        let backlog = linux.takeBacklog()
+        if !backlog.isEmpty { receive(backlog) }
+        machineChanged(linux.state)
+        guard !linux.isUp else { return }
+        banner("booting a RISC-V Linux machine in WebAssembly", tint: .dim)
+        linux.start()
+    }
+
+    private func machineChanged(_ machine: LinuxMachine.State) {
+        switch machine {
+        case .off:
+            bootPhase = nil
+            state = .closed(userClosed ? nil : "powered off")
+        case .starting(let phase):
+            bootPhase = phase
+            state = .connecting
+        case .running:
+            bootPhase = nil
+            guard state != .connected else { return }
+            state = .connected
+            SoundEffects.shared.play(.notify)
+            Haptics.shared.fire(.success)
+        case .stopped(let reason):
+            bootPhase = nil
+            state = .closed(reason)
+            banner(reason, tint: .bad)
+            SoundEffects.shared.play(.disconnect)
         }
     }
 
@@ -331,6 +390,10 @@ final class TerminalSession: Identifiable, Hashable {
     /// Reconnect immediately, skipping whatever is left of the backoff
     /// schedule. Driven by the manual Reconnect action.
     func reconnect() {
+        if linux != nil {
+            boot()
+            return
+        }
         guard credentials != nil else { return }
         userClosed = false
         attempt = 0
@@ -346,6 +409,13 @@ final class TerminalSession: Identifiable, Hashable {
 
     func disconnect() {
         userClosed = true
+        if let linux {
+            linux.onOutput = nil
+            linux.onState = nil
+            linux.stop()
+            state = .closed(nil)
+            return
+        }
         reconnectTask?.cancel()
         reconnectTask = nil
         reconnectingIn = nil
@@ -432,8 +502,10 @@ final class TerminalSession: Identifiable, Hashable {
 
         // Exercise the Live Activity from the render check, which is the only
         // way to see the Island without a host to connect to.
-        if ProcessInfo.processInfo.environment["CONTERM_ISLAND"] != nil {
-            SessionActivityCenter.shared.start(for: self)
+        // CONTERM_ISLAND=<seconds> backdates the clock by that much.
+        if let raw = ProcessInfo.processInfo.environment["CONTERM_ISLAND"] {
+            let ago = TimeInterval(raw) ?? 0
+            SessionActivityCenter.shared.start(for: self, since: Date().addingTimeInterval(-ago))
             NSLog("CONTERM-DIAG island available=\(SessionActivityCenter.shared.isAvailable)")
         }
 

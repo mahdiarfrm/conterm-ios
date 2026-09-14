@@ -1,0 +1,97 @@
+--- a/temu.c	2026-09-13 20:28:36.538456473 +0330
++++ b/temu.c	2026-09-13 20:29:09.049765419 +0330
+@@ -78,6 +78,9 @@
+     int stdin_fd;
+     int console_esc_state;
+     BOOL resize_pending;
++    /* The size the host last announced, or 0 when it never has. */
++    int win_cols;
++    int win_rows;
+ } STDIODevice;
+ 
+ //static struct termios oldtty;
+@@ -149,9 +152,8 @@
+ static int console_read_stdin(void *opaque, uint8_t *buf, int len)
+ {
+     STDIODevice *s = opaque;
+-    int ret, i, j;
+-    uint8_t ch;
+-    
++    int ret;
++
+     if (len <= 0)
+         return 0;
+ 
+@@ -163,37 +165,33 @@
+         exit(1);
+     }
+ 
+-    j = 0;
+-    for(i = 0; i < ret; i++) {
+-        ch = buf[i];
+-        if (s->console_esc_state) {
+-            s->console_esc_state = 0;
+-            switch(ch) {
+-            case 'x':
+-                printf("Terminated\n");
+-                exit(0);
+-            case 'h':
+-                printf("\n"
+-                       "C-a h   print this help\n"
+-                       "C-a x   exit emulator\n"
+-                       "C-a C-a send C-a\n"
+-                       );
+-                break;
+-            case 1:
+-                goto output_char;
+-            default:
+-                break;
+-            }
+-        } else {
+-            if (ch == 1) {
+-                s->console_esc_state = 1;
+-            } else {
+-            output_char:
+-                buf[j++] = ch;
++    /* The host announces the terminal's size the way a terminal answers
++       CSI 18 t: ESC [ 8 ; rows ; cols t, written on its own. It is
++       consumed here and reaches the guest as a virtio console resize.
++       No C-a escape prefix: the host owns the emulator's life, and C-a
++       belongs to the shell. */
++    if (ret >= 6 && buf[0] == 0x1b && buf[1] == '[' && buf[2] == '8' &&
++        buf[3] == ';') {
++        int rows = 0, cols = 0, i = 4;
++        while (i < ret && buf[i] >= '0' && buf[i] <= '9')
++            rows = rows * 10 + (buf[i++] - '0');
++        if (i < ret && buf[i] == ';') {
++            i++;
++            while (i < ret && buf[i] >= '0' && buf[i] <= '9')
++                cols = cols * 10 + (buf[i++] - '0');
++            if (i < ret && buf[i] == 't') {
++                i++;
++                if (rows >= 4 && cols >= 4) {
++                    s->win_rows = rows;
++                    s->win_cols = cols;
++                    s->resize_pending = TRUE;
++                }
++                memmove(buf, buf + i, ret - i);
++                ret -= i;
+             }
+         }
+     }
+-    return j;
++    return ret;
+ }
+ 
+ const char *init_done_str = "=\n";
+@@ -226,6 +224,10 @@
+    /* default values */
+    width = 80;
+    height = 25;
++   if (s->win_cols >= 4 && s->win_rows >= 4) {
++       width = s->win_cols;
++       height = s->win_rows;
++   }
+ //  if (ioctl(s->stdin_fd, TIOCGWINSZ, &ws) == 0 &&
+ //      ws.ws_col >= 4 && ws.ws_row >= 4) {
+ //      width = ws.ws_col;

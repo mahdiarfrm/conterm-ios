@@ -5,6 +5,14 @@ import SwiftUI
 /// nested cards inside a sheet inside a rounded window is three borders
 /// deep before any content.
 struct SettingsView: View {
+    /// On the home's tab rather than in a sheet: a cream card with its own
+    /// title row, and no Done button because there is nothing to dismiss.
+    var embedded = false
+    /// The library, when the settings can open it: keys and snippets are
+    /// specific things, categorised under this general one.
+    var onKeys: (() -> Void)?
+    var onSnippets: (() -> Void)?
+
     @Environment(\.dismiss) private var dismiss
     @State private var prefs = Preferences.shared
     @State private var confirmingCloseAll = false
@@ -12,9 +20,61 @@ struct SettingsView: View {
     private var sessions: SessionStore { SessionStore.shared }
 
     var body: some View {
-        NavigationStack {
+        Group {
+            if embedded {
+                VStack(spacing: 0) {
+                    CardHeader(title: "Settings")
+                    content
+                }
+                .creamCard()
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+                .arrive(0, enabled: true)
+                .contermReadableColumn(740)
+            } else {
+                NavigationStack {
+                    content
+                        .creamSheet()
+                        .navigationTitle("Settings")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { dismiss() }
+                                    .font(Theme.font(Theme.ui(15), .semibold))
+                            }
+                        }
+                }
+            }
+        }
+        .tint(Theme.Brand.ink)
+    }
+
+    private var content: some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    if onKeys != nil || onSnippets != nil {
+                        band("Library") {
+                            if let onKeys {
+                                linkRow("Keys", detail: "\(KeyLibrary.shared.keys.count)",
+                                        symbol: "key.horizontal.fill", action: onKeys)
+                            }
+                            if let onSnippets {
+                                linkRow("Snippets", detail: "\(SnippetStore.shared.snippets.count)",
+                                        symbol: "apple.terminal.fill", action: onSnippets)
+                            }
+                        }
+                    }
+
+                    band("Colour") {
+                        swatches
+                        toggleRow("Smoke on colours",
+                                  help: "Wisps in the ground's colour drifting over it. The Smoke ground always drifts.",
+                                  isOn: $prefs.smoke)
+                        toggleRow("Glass panels",
+                                  help: "Every panel as monochrome glass, whatever colour it would wear.",
+                                  isOn: $prefs.glassPanels)
+                    }
+
                     band("Terminal") {
                         stepperRow(
                             "Columns",
@@ -25,6 +85,13 @@ struct SettingsView: View {
                             "Keep screen awake",
                             help: "Only while a terminal is open.",
                             isOn: $prefs.keepScreenAwake)
+                        toggleRow(
+                            "Debian: direct networking",
+                            help: "Experimental. The Linux machine reaches the network on any "
+                                + "port, ssh included, instead of the built-in HTTP proxy. Fast "
+                                + "to connect, but sustained downloads and apt are not yet "
+                                + "reliable. Power the machine off and on after changing this.",
+                            isOn: $prefs.linuxNativeNet)
                     }
 
                     band("Feel") {
@@ -68,7 +135,7 @@ struct SettingsView: View {
 
                     Text("Conterm for iOS is an independent frontend and is "
                        + "not affiliated with the Ghostty project.")
-                        .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
+                        .font(Theme.font(Theme.ui(11), .medium))
                         .foregroundStyle(Theme.textSecondary.opacity(0.8))
                         .padding(.horizontal, 20)
                         .padding(.top, 18)
@@ -76,15 +143,6 @@ struct SettingsView: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Theme.appBackground.ignoresSafeArea())
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                        .font(.system(size: Theme.ui(15), weight: .semibold, design: .rounded))
-                }
-            }
             .confirmationDialog("Disconnect every open session?",
                                 isPresented: $confirmingCloseAll,
                                 titleVisibility: .visible) {
@@ -94,8 +152,37 @@ struct SettingsView: View {
                     sessions.closeAll()
                 }
             }
+    }
+
+    /// A row that opens something: a glyph, a name, a count, a chevron.
+    private func linkRow(_ title: String, detail: String, symbol: String,
+                         action: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.shared.fire(.light)
+            action()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: symbol)
+                    .font(.system(size: Theme.ui(13), weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 22)
+                Text(title)
+                    .font(Theme.font(Theme.ui(15), .medium))
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+                Text(detail)
+                    .font(.system(size: Theme.ui(13), weight: .medium, design: .monospaced))
+                    .foregroundStyle(Theme.textSecondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: Theme.ui(11), weight: .semibold))
+                    .foregroundStyle(Theme.textSecondary.opacity(0.7))
+            }
+            .padding(.horizontal, 20)
+            .frame(minHeight: Theme.ui(46))
+            .contentShape(Rectangle())
+            .overlay(alignment: .bottom) { hairline }
         }
-        .tint(Theme.accentOnDark)
+        .buttonStyle(PressableRow())
     }
 
     private static var appVersion: String {
@@ -105,27 +192,81 @@ struct SettingsView: View {
         return "\(short) (\(build))"
     }
 
+    // MARK: - Colour
+
+    /// The grounds, as a row of round swatches. Each is the gradient it
+    /// stands for; the chosen one wears a ring in the ink and a tick.
+    private var swatches: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 14) {
+                ForEach(GroundPalette.all) { palette in
+                    let selected = prefs.ground == palette.id
+                    Button {
+                        guard !selected else { return }
+                        Haptics.shared.fire(.selection)
+                        withAnimation(Theme.Spring.snappy) { prefs.ground = palette.id }
+                    } label: {
+                        VStack(spacing: 7) {
+                            Circle()
+                                .fill(LinearGradient(colors: [palette.top, palette.bottom],
+                                                     startPoint: .top, endPoint: .bottom))
+                                .frame(width: Theme.ui(46), height: Theme.ui(46))
+                                .overlay {
+                                    if selected {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: Theme.ui(15), weight: .bold))
+                                            .foregroundStyle(Theme.Brand.cream)
+                                            .transition(.morph)
+                                    }
+                                }
+                                .padding(3)
+                                .overlay {
+                                    Circle()
+                                        .strokeBorder(Theme.textPrimary, lineWidth: selected ? 2 : 0)
+                                }
+                            Text(palette.name)
+                                .font(Theme.font(Theme.ui(11), .semibold))
+                                .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
+                        }
+                        .animation(Theme.Spring.snappy, value: selected)
+                    }
+                    .buttonStyle(PressablePill(scale: 0.88))
+                    .accessibilityLabel(palette.name)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 6)
+        }
+        .overlay(alignment: .bottom) { hairline }
+        .padding(.bottom, 6)
+    }
+
     // MARK: - Bands
+
+    /// Bands arrive one after another down the card.
+    private static let bandOrder = ["Library", "Colour", "Terminal", "Feel", "Sessions", "About"]
 
     @ViewBuilder
     private func band<Content: View>(_ title: String,
                                      @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title.uppercased())
-                .font(.system(size: Theme.ui(11), weight: .bold))
+                .font(Theme.font(Theme.ui(11), .bold))
                 .tracking(1.1)
                 .foregroundStyle(Theme.textSecondary)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 22)
                 .padding(.top, 26)
                 .padding(.bottom, 10)
             VStack(spacing: 0) { content() }
         }
+        .arrive((Self.bandOrder.firstIndex(of: title) ?? 0) + 1, step: 0.05, enabled: true)
     }
 
     private func rowLabel(_ title: String, tint: Color = Theme.textPrimary) -> some View {
         HStack {
             Text(title)
-                .font(.system(size: Theme.ui(15), weight: .medium, design: .rounded))
+                .font(Theme.font(Theme.ui(15), .medium))
                 .foregroundStyle(tint)
             Spacer()
         }
@@ -142,7 +283,7 @@ struct SettingsView: View {
     private func plainRow(_ title: String, detail: String) -> some View {
         HStack {
             Text(title)
-                .font(.system(size: Theme.ui(15), weight: .medium, design: .rounded))
+                .font(Theme.font(Theme.ui(15), .medium))
                 .foregroundStyle(Theme.textPrimary)
             Spacer()
             Text(detail)
@@ -160,11 +301,11 @@ struct SettingsView: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: Theme.ui(15), weight: .medium, design: .rounded))
+                    .font(Theme.font(Theme.ui(15), .medium))
                     .foregroundStyle(Theme.textPrimary)
                 if let help {
                     Text(help)
-                        .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
+                        .font(Theme.font(Theme.ui(11), .medium))
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -172,7 +313,7 @@ struct SettingsView: View {
             Spacer(minLength: 8)
             Toggle("", isOn: isOn)
                 .labelsHidden()
-                .tint(Theme.accentOnDark)
+                .tint(Theme.accent)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
@@ -190,16 +331,16 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
                     Text(title)
-                        .font(.system(size: Theme.ui(15), weight: .medium, design: .rounded))
+                        .font(Theme.font(Theme.ui(15), .medium))
                         .foregroundStyle(Theme.textPrimary)
                     Text(detail)
                         .font(.system(size: Theme.ui(13), weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Theme.accentOnDark)
+                        .foregroundStyle(Theme.accent)
                         .monospacedDigit()
                 }
                 if let help {
                     Text(help)
-                        .font(.system(size: Theme.ui(11), weight: .medium, design: .rounded))
+                        .font(Theme.font(Theme.ui(11), .medium))
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

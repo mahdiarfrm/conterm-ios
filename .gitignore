@@ -16,3 +16,10 @@ xcuserdata/
 
 # Throwaway SSH server for scripts/selftest.sh — keys and logs, never shared.
 .test-host/
+
+# The Debian image the Linux machine boots. scripts/linux-image.sh builds
+# it; at a hundred megabytes and more it is not for git.
+Resources/linux/*.wasm
+.linux-image/
+.build-netstack/
+Vendor/NetStack.xcframework

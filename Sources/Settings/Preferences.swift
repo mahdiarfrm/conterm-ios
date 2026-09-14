@@ -23,6 +23,15 @@ final class Preferences {
         typingHaptics = Self.read(defaults, "conterm.typingHaptics", false)
         launchAnimation = Self.read(defaults, "conterm.launchAnimation", true)
         keepScreenAwake = Self.read(defaults, "conterm.keepScreenAwake", false)
+        ground = Self.read(defaults, "conterm.ground", GroundPalette.smoke.id)
+        smoke = Self.read(defaults, "conterm.smoke", true)
+        glassPanels = Self.read(defaults, "conterm.glassPanels", false)
+        filesShowHidden = Self.read(defaults, "conterm.filesHidden", false)
+        linuxNativeNet = Self.read(defaults, "conterm.linuxNativeNet", false)
+        panePicture = Self.read(defaults, "conterm.panePicture", true)
+        paneWrap = Self.read(defaults, "conterm.paneWrap", true)
+        paneFontSize = Self.read(defaults, "conterm.paneFontSize", 11.0)
+        homePanels = Self.read(defaults, "conterm.homePanels", HomePanelKind.defaultOrder)
     }
 
     private static func read<T>(_ d: UserDefaults, _ key: String, _ fallback: T) -> T {
@@ -43,6 +52,57 @@ final class Preferences {
             defaults.set(chromeScale, forKey: "conterm.uiScale")
             Theme.reloadUIScale()
         }
+    }
+
+    /// The ground the app sits on, by `GroundPalette.id`. Smoke until
+    /// changed.
+    var ground: String {
+        didSet {
+            defaults.set(ground, forKey: "conterm.ground")
+            Theme.reloadPalette()
+        }
+    }
+
+    /// Whether a coloured ground drifts too: smoke in the ground's own
+    /// family, moving under everything. The Smoke ground always does.
+    var smoke: Bool {
+        didSet { defaults.set(smoke, forKey: "conterm.smoke") }
+    }
+
+    /// Every panel as monochrome glass, whatever bed it would have worn.
+    var glassPanels: Bool {
+        didSet { defaults.set(glassPanels, forKey: "conterm.glassPanels") }
+    }
+
+    /// The Linux machine reaches the network through a real TCP/IP stack in
+    /// the app (any port, ssh) rather than the bundled HTTP-only proxy.
+    /// Experimental: fast connects, but sustained HTTPS and apt are not yet
+    /// reliable, so it is off by default.
+    var linuxNativeNet: Bool {
+        didSet { defaults.set(linuxNativeNet, forKey: "conterm.linuxNativeNet") }
+    }
+
+    /// A Mac pane on the phone as pixels rather than text.
+    var panePicture: Bool {
+        didSet { defaults.set(panePicture, forKey: "conterm.panePicture") }
+    }
+    /// In text mode, lines wrapped to the phone rather than scrolled.
+    var paneWrap: Bool {
+        didSet { defaults.set(paneWrap, forKey: "conterm.paneWrap") }
+    }
+    var paneFontSize: Double {
+        didSet { defaults.set(paneFontSize, forKey: "conterm.paneFontSize") }
+    }
+
+    /// Dotfiles in the file browser.
+    var filesShowHidden: Bool {
+        didSet { defaults.set(filesShowHidden, forKey: "conterm.filesHidden") }
+    }
+
+    /// The panels on the home screen, in order, by `HomePanelKind` id. A
+    /// kind missing from the list is switched off.
+    var homePanels: [String] {
+        didSet { defaults.set(homePanels, forKey: "conterm.homePanels") }
     }
 
     var soundEffects: Bool {
